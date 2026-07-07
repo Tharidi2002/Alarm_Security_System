@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
-import { Shield, Lock, User, AlertCircle } from 'lucide-react';
+import { useState } from 'react';
+import { Shield, Lock, User, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import PropTypes from 'prop-types';
 
-export default function Login({ onLoginSuccess }) {
+export default function Login({ onLoginSuccess, onShowRegister }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -91,13 +93,26 @@ export default function Login({ onLoginSuccess }) {
             <div className="relative">
               <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-500" />
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full bg-slate-950 border border-slate-800/80 rounded-xl pl-11 pr-4 py-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/50 transition-all font-mono"
+                className="w-full bg-slate-950 border border-slate-800/80 rounded-xl pl-11 pr-12 py-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/50 transition-all font-mono"
                 required
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3.5 top-3.5 text-slate-500 hover:text-slate-300 transition-colors"
+                tabIndex="-1"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
             </div>
           </div>
 
@@ -113,7 +128,24 @@ export default function Login({ onLoginSuccess }) {
             )}
           </button>
         </form>
+
+        {/* Register Link - NEW */}
+        <p className="text-center text-xs text-slate-500 mt-4 font-mono">
+          Do not have an account?{' '}
+          <button
+            type="button"
+            onClick={onShowRegister}
+            className="text-red-400 hover:text-red-300 transition-colors font-bold underline-offset-2 hover:underline"
+          >
+            Create Admin Account
+          </button>
+        </p>
       </div>
     </div>
   );
 }
+
+Login.propTypes = {
+  onLoginSuccess: PropTypes.func.isRequired,
+  onShowRegister: PropTypes.func.isRequired,
+};

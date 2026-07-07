@@ -18,8 +18,8 @@ public class User {
     private String username;
 
     @Column(nullable = false)
-    private String password;
+    private String password; // Stored as BCrypt hash
 
     @Column(nullable = false, length = 20)
-    private String role; // 'ADMIN' or 'USER'
+    private String role;
 }

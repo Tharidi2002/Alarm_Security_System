@@ -7,6 +7,7 @@ import com.security.alarm.repository.UserRepository;
 import com.security.alarm.repository.UserSystemRepository;
 import com.security.alarm.repository.AlarmSystemRepository;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.List;
@@ -22,13 +23,16 @@ public class AdminController {
     private final UserRepository userRepository;
     private final UserSystemRepository userSystemRepository;
     private final AlarmSystemRepository alarmSystemRepository;
+    private final PasswordEncoder passwordEncoder;
 
     public AdminController(UserRepository userRepository,
                            UserSystemRepository userSystemRepository,
-                           AlarmSystemRepository alarmSystemRepository) {
+                           AlarmSystemRepository alarmSystemRepository,
+                           PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.userSystemRepository = userSystemRepository;
         this.alarmSystemRepository = alarmSystemRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     // 1. Get all users
@@ -69,6 +73,8 @@ public class AdminController {
         if (userRepository.findByUsername(newUser.getUsername()).isPresent()) {
             return ResponseEntity.badRequest().body("Username already exists");
         }
+        // Hash the password before saving
+        newUser.setPassword(passwordEncoder.encode(newUser.getPassword()));
         User saved = userRepository.save(newUser);
         return ResponseEntity.ok(saved);
     }
