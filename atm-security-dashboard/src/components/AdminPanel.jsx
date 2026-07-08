@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { 
   X, UserPlus, ShieldAlert, Check, Plus, AlertCircle, Users, Cpu, 
   ToggleLeft, ToggleRight, Edit2, Trash2, Save, Eye, EyeOff,
-  RefreshCw, Zap
+  RefreshCw, Zap, Copy, CheckCircle as CheckCircleIcon
 } from 'lucide-react';
 import { 
   fetchUsers, 
@@ -39,20 +39,59 @@ export default function AdminPanel({ isOpen, onClose }) {
   const [simNumber, setSimNumber] = useState('');
   const [editingSystem, setEditingSystem] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedCode, setGeneratedCode] = useState('');
+  const [copied, setCopied] = useState(false);
 
   const [timeNow, setTimeNow] = useState(new Date());
+
+  // ===== NEW: Fetch latest system code on load =====
+  useEffect(() => {
+    if (isOpen && activeTab === 'SYSTEMS') {
+      fetchLatestSystemCode();
+    }
+  }, [isOpen, activeTab]);
 
   useEffect(() => {
     if (isOpen) {
       loadData();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, activeTab]);
 
   useEffect(() => {
     const interval = setInterval(() => setTimeNow(new Date()), 60000);
     return () => clearInterval(interval);
   }, []);
+
+  // ===== NEW: Fetch latest system code =====
+  const fetchLatestSystemCode = async () => {
+    try {
+      const systemsData = await fetchSystems();
+      if (systemsData && systemsData.length > 0) {
+        // Find the last system code
+        const z8bSystems = systemsData
+          .filter(s => s.systemCode && s.systemCode.startsWith('ALARM-Z8B-'))
+          .sort((a, b) => {
+            const numA = parseInt(a.systemCode.split('-')[2]);
+            const numB = parseInt(b.systemCode.split('-')[2]);
+            return numB - numA;
+          });
+        
+        if (z8bSystems.length > 0) {
+          const lastCode = z8bSystems[0].systemCode;
+          const lastNum = parseInt(lastCode.split('-')[2]);
+          const nextNum = lastNum + 1;
+          setGeneratedCode(`ALARM-Z8B-${String(nextNum).padStart(2, '0')}`);
+        } else {
+          setGeneratedCode('ALARM-Z8B-01');
+        }
+      } else {
+        setGeneratedCode('ALARM-Z8B-01');
+      }
+    } catch (error) {
+      console.error('Error fetching system code:', error);
+      setGeneratedCode('ALARM-Z8B-01');
+    }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -64,10 +103,23 @@ export default function AdminPanel({ isOpen, onClose }) {
       ]);
       setUsers(usersData);
       setSystems(systemsData);
+      // Refresh generated code
+      if (activeTab === 'SYSTEMS') {
+        await fetchLatestSystemCode();
+      }
     } catch {
       setError('Failed to load data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ===== NEW: Copy system code to clipboard =====
+  const copyToClipboard = () => {
+    if (generatedCode) {
+      navigator.clipboard.writeText(generatedCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -145,7 +197,8 @@ export default function AdminPanel({ isOpen, onClose }) {
       setSuccess(`✅ System created: ${result.systemCode}`);
       setLocation('');
       setSimNumber('');
-      loadData();
+      await loadData();
+      await fetchLatestSystemCode(); // Refresh the generated code
     } catch (errorMsg) {
       setError(errorMsg.message || 'Failed to create system');
     } finally {
@@ -179,6 +232,7 @@ export default function AdminPanel({ isOpen, onClose }) {
       setLocation('');
       setSimNumber('');
       loadData();
+      await fetchLatestSystemCode();
     } catch (errorMsg) {
       setError(errorMsg.message || 'Failed to update system');
     }
@@ -188,6 +242,7 @@ export default function AdminPanel({ isOpen, onClose }) {
     setEditingSystem(null);
     setLocation('');
     setSimNumber('');
+    fetchLatestSystemCode();
   };
 
   const handleToggleStatus = async (system) => {
@@ -211,6 +266,7 @@ export default function AdminPanel({ isOpen, onClose }) {
       await deleteSystem(systemId);
       setSuccess(`✅ System ${systemCode} deleted successfully`);
       loadData();
+      await fetchLatestSystemCode();
     } catch (errorMsg) {
       setError(errorMsg.message || 'Failed to delete system');
     }
@@ -442,27 +498,47 @@ export default function AdminPanel({ isOpen, onClose }) {
                 </h3>
                 
                 <form onSubmit={editingSystem ? handleUpdateSystem : handleCreateSystem} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* ===== SYSTEM CODE - NOW SHOWING ===== */}
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono">
+                    <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono flex items-center gap-2">
                       System Code
+                      {!editingSystem && generatedCode && (
+                        <button
+                          type="button"
+                          onClick={copyToClipboard}
+                          className="p-1 hover:bg-slate-700 rounded-lg transition-colors"
+                          title="Copy system code"
+                        >
+                          {copied ? (
+                            <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-400" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5 text-slate-400 hover:text-white" />
+                          )}
+                        </button>
+                      )}
                     </label>
                     <div className="relative">
                       <input 
                         type="text"
-                        value={editingSystem ? editingSystem.systemCode : 'Auto-generated'}
+                        value={editingSystem ? editingSystem.systemCode : generatedCode || 'Loading...'}
                         disabled
-                        className={`w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-400 cursor-not-allowed ${
-                          editingSystem ? 'opacity-80' : ''
+                        className={`w-full bg-slate-950 border rounded-lg px-3 py-2 text-xs font-mono cursor-not-allowed ${
+                          editingSystem 
+                            ? 'border-slate-700 text-slate-400' 
+                            : 'border-emerald-500/50 text-emerald-400 bg-emerald-500/5'
                         }`}
                       />
-                      {!editingSystem && (
+                      {!editingSystem && generatedCode && (
                         <div className="absolute right-3 top-1/2 -translate-y-1/2">
                           <Zap className="w-4 h-4 text-emerald-500 animate-pulse" />
                         </div>
                       )}
                     </div>
                     <p className="text-[9px] text-slate-500 font-mono">
-                      {editingSystem ? 'System code cannot be changed' : 'Auto-generated: ALARM-Z8B-XX'}
+                      {editingSystem 
+                        ? 'System code cannot be changed' 
+                        : 'Auto-generated: Next available code'
+                      }
                     </p>
                   </div>
 
@@ -674,7 +750,7 @@ export default function AdminPanel({ isOpen, onClose }) {
   );
 }
 
-// ========== PROPTYPES VALIDATION ==========
+// ===== PROPTYPES =====
 AdminPanel.propTypes = {
   isOpen: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
