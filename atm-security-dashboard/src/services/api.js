@@ -39,6 +39,12 @@ export const fetchSystems = async () => {
   return await response.json();
 };
 
+export const getSystemById = async (systemId) => {
+  const response = await fetch(`${API_BASE_URL}/admin/systems/${systemId}`);
+  if (!response.ok) throw new Error('Failed to fetch system');
+  return await response.json();
+};
+
 export const assignSystems = async (userId, systemIds) => {
   const response = await fetch(`${API_BASE_URL}/admin/users/${userId}/assign`, {
     method: 'POST',
@@ -47,18 +53,6 @@ export const assignSystems = async (userId, systemIds) => {
   });
   if (!response.ok) throw new Error('Failed to assign systems');
   return true;
-};
-
-export const resolveAlert = async (alertId) => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/alerts/${alertId}/resolve`, {
-      method: 'PUT',
-    });
-    return await response.json();
-  } catch (error) {
-    console.error('Error resolving alert:', error);
-    return null;
-  }
 };
 
 export const createSystem = async (systemData) => {
@@ -80,7 +74,10 @@ export const updateSystem = async (systemId, systemData) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(systemData),
   });
-  if (!response.ok) throw new Error('Failed to update system');
+  if (!response.ok) {
+    const errorMsg = await response.text();
+    throw new Error(errorMsg || 'Failed to update system');
+  }
   return await response.json();
 };
 
@@ -90,7 +87,10 @@ export const toggleSystemStatus = async (systemId, status) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
   });
-  if (!response.ok) throw new Error('Failed to change status');
+  if (!response.ok) {
+    const errorMsg = await response.text();
+    throw new Error(errorMsg || 'Failed to change status');
+  }
   return await response.json();
 };
 
@@ -98,6 +98,54 @@ export const deleteSystem = async (systemId) => {
   const response = await fetch(`${API_BASE_URL}/admin/systems/${systemId}`, {
     method: 'DELETE',
   });
-  if (!response.ok) throw new Error('Failed to delete system');
+  if (!response.ok) {
+    const errorMsg = await response.text();
+    throw new Error(errorMsg || 'Failed to delete system');
+  }
   return true;
+};
+
+// ========== NEW RESOLVE API FUNCTIONS ==========
+
+export const resolveAlert = async (alertId, resolvedBy, description) => {
+  try {
+    const url = description 
+      ? `${API_BASE_URL}/alerts/${alertId}/resolve?resolvedBy=${encodeURIComponent(resolvedBy)}&description=${encodeURIComponent(description)}`
+      : `${API_BASE_URL}/alerts/${alertId}/resolve?resolvedBy=${encodeURIComponent(resolvedBy)}`;
+    
+    const response = await fetch(url, {
+      method: 'PUT',
+    });
+    
+    if (!response.ok) {
+      const errorMsg = await response.text();
+      throw new Error(errorMsg || 'Failed to resolve alert');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error resolving alert:', error);
+    throw error;
+  }
+};
+
+export const getAlertDetails = async (alertId) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/alerts/${alertId}/details`);
+    if (!response.ok) throw new Error('Failed to fetch alert details');
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching alert details:', error);
+    return null;
+  }
+};
+
+export const getPendingCount = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/alerts/pending/count`);
+    if (!response.ok) throw new Error('Failed to fetch counts');
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching counts:', error);
+    return { pending: 0, resolved: 0 };
+  }
 };

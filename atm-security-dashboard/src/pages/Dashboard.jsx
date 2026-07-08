@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import PropTypes from 'prop-types';
 import Navbar from '../components/Navbar';
 import StatsCards from '../components/StatsCards';
 import AlertTable from '../components/AlertTable';
@@ -17,6 +18,10 @@ export default function Dashboard({ user, onLogout }) {
     refreshAlerts,
     tableContainerRef 
   } = useAlerts(user.username);
+
+  const handleAlertResolved = () => {
+    refreshAlerts();
+  };
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 font-sans">
@@ -68,6 +73,8 @@ export default function Dashboard({ user, onLogout }) {
           alerts={alerts} 
           loading={loading} 
           tableContainerRef={tableContainerRef}
+          username={user.username}
+          onAlertResolved={handleAlertResolved}
         />
       </main>
 
@@ -87,3 +94,12 @@ export default function Dashboard({ user, onLogout }) {
     </div>
   );
 }
+
+Dashboard.propTypes = {
+  user: PropTypes.shape({
+    username: PropTypes.string.isRequired,
+    role: PropTypes.string.isRequired,
+    assignedSystems: PropTypes.array,
+  }).isRequired,
+  onLogout: PropTypes.func.isRequired,
+};

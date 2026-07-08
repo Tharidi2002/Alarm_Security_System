@@ -1,11 +1,14 @@
-import React from 'react';
-import { X, MapPin, Clock, Radio, AlertTriangle, ChevronRight } from 'lucide-react';
+import { useState } from 'react';
+import PropTypes from 'prop-types';
+import { X, MapPin, Clock, Radio, ChevronRight, CheckCircle, User, Clock as ClockIcon } from 'lucide-react';
 import StatusBadge from './StatusBadge';
+import AlertResolveModal from './AlertResolveModal';
 
-export default function AlertDetailsPanel({ alert, isOpen, onClose }) {
+export default function AlertDetailsPanel({ alert, isOpen, onClose, onResolved, username }) {
+  const [showResolveModal, setShowResolveModal] = useState(false);
+
   if (!isOpen || !alert) return null;
 
-  // Zone badges render කරන function එක
   const renderZoneBadges = (zoneNumbers) => {
     if (!zoneNumbers || zoneNumbers === '00' || zoneNumbers === '0') {
       return <span className="text-slate-500 text-sm">No Zone</span>;
@@ -31,6 +34,19 @@ export default function AlertDetailsPanel({ alert, isOpen, onClose }) {
     );
   };
 
+  const formatDuration = (seconds) => {
+    if (!seconds) return 'N/A';
+    const mins = Math.floor(seconds / 60);
+    const hours = Math.floor(mins / 60);
+    const days = Math.floor(hours / 24);
+    
+    if (days > 0) return `${days}d ${hours % 24}h ${mins % 60}m`;
+    if (hours > 0) return `${hours}h ${mins % 60}m`;
+    return `${mins}m`;
+  };
+
+  const isPending = alert.status === 'PENDING';
+
   return (
     <>
       {/* Mobile: Full screen overlay */}
@@ -45,7 +61,13 @@ export default function AlertDetailsPanel({ alert, isOpen, onClose }) {
               <X className="w-5 h-5 text-slate-400" />
             </button>
           </div>
-          <PanelContent alert={alert} renderZoneBadges={renderZoneBadges} />
+          <PanelContent 
+            alert={alert} 
+            renderZoneBadges={renderZoneBadges} 
+            formatDuration={formatDuration}
+            isPending={isPending}
+            onResolveClick={() => setShowResolveModal(true)}
+          />
         </div>
       </div>
 
@@ -63,14 +85,30 @@ export default function AlertDetailsPanel({ alert, isOpen, onClose }) {
               <X className="w-5 h-5 text-slate-400" />
             </button>
           </div>
-          <PanelContent alert={alert} renderZoneBadges={renderZoneBadges} />
+          <PanelContent 
+            alert={alert} 
+            renderZoneBadges={renderZoneBadges} 
+            formatDuration={formatDuration}
+            isPending={isPending}
+            onResolveClick={() => setShowResolveModal(true)}
+          />
         </div>
       </div>
+
+      {/* Resolve Modal */}
+      <AlertResolveModal
+        alert={alert}
+        isOpen={showResolveModal}
+        onClose={() => setShowResolveModal(false)}
+        onResolved={onResolved}
+        username={username}
+      />
     </>
   );
 }
 
-function PanelContent({ alert, renderZoneBadges }) {
+// ===== PanelContent Component =====
+function PanelContent({ alert, renderZoneBadges, formatDuration, isPending, onResolveClick }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -101,8 +139,69 @@ function PanelContent({ alert, renderZoneBadges }) {
 
       <div className="flex items-center gap-2 text-slate-400 text-sm border-t border-slate-800 pt-4">
         <Clock className="w-4 h-4 flex-shrink-0" />
-        <span>{new Date(alert.receivedAt).toLocaleString()}</span>
+        <span>Received: {new Date(alert.receivedAt).toLocaleString()}</span>
       </div>
+
+      {/* Resolved Info - Only show if resolved */}
+      {alert.status === 'RESOLVED' && (
+        <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4 space-y-2">
+          <div className="flex items-center gap-2 text-emerald-400">
+            <CheckCircle className="w-4 h-4" />
+            <span className="text-sm font-bold">Resolved</span>
+          </div>
+          <div className="flex items-center gap-2 text-slate-400 text-xs">
+            <User className="w-3.5 h-3.5" />
+            <span>By: <span className="text-white">{alert.resolvedBy || 'Unknown'}</span></span>
+          </div>
+          <div className="flex items-center gap-2 text-slate-400 text-xs">
+            <ClockIcon className="w-3.5 h-3.5" />
+            <span>At: <span className="text-white">{alert.resolvedAt ? new Date(alert.resolvedAt).toLocaleString() : 'N/A'}</span></span>
+          </div>
+          <div className="flex items-center gap-2 text-slate-400 text-xs">
+            <Clock className="w-3.5 h-3.5" />
+            <span>Pending duration: <span className="text-yellow-400 font-bold">{formatDuration(alert.pendingDurationSeconds)}</span></span>
+          </div>
+          {alert.resolutionDescription && (
+            <div className="mt-2 bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-slate-300">
+              <span className="text-slate-500">Description: </span>
+              {alert.resolutionDescription}
+            </div>
+          )}
+          {alert.resolvedFromIp && (
+            <div className="text-[10px] text-slate-500 font-mono">
+              IP: {alert.resolvedFromIp}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Resolve Button - Only show for PENDING */}
+      {isPending && (
+        <button
+          onClick={onResolveClick}
+          className="w-full mt-2 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white font-bold rounded-xl text-sm font-mono transition-all uppercase tracking-wide flex items-center justify-center gap-2"
+        >
+          <CheckCircle className="w-4 h-4" />
+          Resolve This Alert
+        </button>
+      )}
     </div>
   );
 }
+
+// ===== PropTypes =====
+AlertDetailsPanel.propTypes = {
+  alert: PropTypes.object,
+  isOpen: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
+  onResolved: PropTypes.func.isRequired,
+  username: PropTypes.string.isRequired,
+};
+
+PanelContent.propTypes = {
+  alert: PropTypes.object.isRequired,
+  renderZoneBadges: PropTypes.func.isRequired,
+  formatDuration: PropTypes.func.isRequired,
+  isPending: PropTypes.bool.isRequired,
+  onResolveClick: PropTypes.func.isRequired,
+};

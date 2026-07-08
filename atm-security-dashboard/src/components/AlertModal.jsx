@@ -1,11 +1,10 @@
-import React from 'react';
+import PropTypes from 'prop-types';
 import { X, MapPin, Clock, Radio, AlertTriangle } from 'lucide-react';
 import StatusBadge from './StatusBadge';
 
 export default function AlertModal({ alert, isOpen, onClose }) {
   if (!isOpen || !alert) return null;
 
-  // Zone badges render කරන function එක
   const renderZoneBadges = (zoneNumbers) => {
     if (!zoneNumbers || zoneNumbers === '00' || zoneNumbers === '0') {
       return <span className="text-slate-500">No Zone</span>;
@@ -50,7 +49,6 @@ export default function AlertModal({ alert, isOpen, onClose }) {
 
         {/* Content */}
         <div className="p-6 space-y-4">
-          {/* Status & Alarm System */}
           <div className="flex flex-wrap items-center gap-4">
             <StatusBadge status={alert.status} />
             <span className="text-sm font-mono text-white bg-slate-800 px-3 py-1 rounded-lg">
@@ -58,13 +56,11 @@ export default function AlertModal({ alert, isOpen, onClose }) {
             </span>
           </div>
 
-          {/* Location */}
           <div className="flex items-center gap-2 text-slate-300">
             <MapPin className="w-4 h-4 text-slate-500" />
             <span>{alert.alarmSystem?.location || 'Unknown Location'}</span>
           </div>
 
-          {/* Zone Numbers - ALL zones පෙන්වන්න */}
           <div className="flex items-start gap-2">
             <Radio className="w-4 h-4 text-slate-500 flex-shrink-0 mt-1" />
             <div className="flex flex-wrap gap-2">
@@ -72,7 +68,6 @@ export default function AlertModal({ alert, isOpen, onClose }) {
             </div>
           </div>
 
-          {/* Full Message */}
           <div className="bg-slate-950 border border-slate-800 rounded-xl p-4">
             <p className="text-sm text-slate-400 mb-2">📨 Full Message</p>
             <p className="text-white font-mono text-sm break-words">
@@ -80,7 +75,6 @@ export default function AlertModal({ alert, isOpen, onClose }) {
             </p>
           </div>
 
-          {/* Timestamp */}
           <div className="flex items-center gap-2 text-slate-400 text-sm">
             <Clock className="w-4 h-4" />
             <span>{new Date(alert.receivedAt).toLocaleString()}</span>
@@ -90,3 +84,9 @@ export default function AlertModal({ alert, isOpen, onClose }) {
     </div>
   );
 }
+
+AlertModal.propTypes = {
+  alert: PropTypes.object,
+  isOpen: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
+};

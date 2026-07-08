@@ -1,5 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { X, UserPlus, ShieldAlert, Check, Plus, AlertCircle, Users, Cpu, ToggleLeft, ToggleRight, Edit2, Trash2, Save } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import PropTypes from 'prop-types';
+import { 
+  X, UserPlus, ShieldAlert, Check, Plus, AlertCircle, Users, Cpu, 
+  ToggleLeft, ToggleRight, Edit2, Trash2, Save, Eye, EyeOff,
+  RefreshCw, Zap
+} from 'lucide-react';
 import { 
   fetchUsers, 
   createUser, 
@@ -12,7 +17,7 @@ import {
 } from '../services/api';
 
 export default function AdminPanel({ isOpen, onClose }) {
-  const [activeTab, setActiveTab] = useState('USERS'); // 'USERS' or 'SYSTEMS'
+  const [activeTab, setActiveTab] = useState('USERS');
   const [users, setUsers] = useState([]);
   const [systems, setSystems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -23,28 +28,28 @@ export default function AdminPanel({ isOpen, onClose }) {
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState('USER');
+  const [showPassword, setShowPassword] = useState(false);
 
   // Assign states
   const [selectedUser, setSelectedUser] = useState(null);
   const [userAssignedIds, setUserAssignedIds] = useState([]);
 
-  // System form states (Add & Edit)
-  const [systemCode, setSystemCode] = useState('');
+  // System form states
   const [location, setLocation] = useState('');
   const [simNumber, setSimNumber] = useState('');
-  const [editingSystem, setEditingSystem] = useState(null); // System object when editing
+  const [editingSystem, setEditingSystem] = useState(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
-  // System Status durations helper
   const [timeNow, setTimeNow] = useState(new Date());
 
   useEffect(() => {
     if (isOpen) {
       loadData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, activeTab]);
 
   useEffect(() => {
-    // Update active durations every minute
     const interval = setInterval(() => setTimeNow(new Date()), 60000);
     return () => clearInterval(interval);
   }, []);
@@ -59,13 +64,14 @@ export default function AdminPanel({ isOpen, onClose }) {
       ]);
       setUsers(usersData);
       setSystems(systemsData);
-    } catch (err) {
-      setError('Failed to load users or systems');
+    } catch {
+      setError('Failed to load data');
     } finally {
       setLoading(false);
     }
   };
 
+  // ========== USER MANAGEMENT ==========
   const handleCreateUser = async (e) => {
     e.preventDefault();
     if (!newUsername.trim() || !newPassword.trim()) return;
@@ -83,8 +89,8 @@ export default function AdminPanel({ isOpen, onClose }) {
       setNewPassword('');
       setNewRole('USER');
       loadData();
-    } catch (err) {
-      setError(err.message || 'Failed to create user');
+    } catch (errorMsg) {
+      setError(errorMsg.message || 'Failed to create user');
     }
   };
 
@@ -111,57 +117,75 @@ export default function AdminPanel({ isOpen, onClose }) {
       setSuccess(`Updated system access for ${selectedUser.username}`);
       setSelectedUser(null);
       loadData();
-    } catch (err) {
-      setError('Failed to save assignments');
+    } catch (errorMsg) {
+      setError(errorMsg.message || 'Failed to save assignments');
     }
   };
 
-  // Systems CRUD operations
-  const handleCreateOrUpdateSystem = async (e) => {
+  // ========== SYSTEM MANAGEMENT ==========
+  const handleCreateSystem = async (e) => {
     e.preventDefault();
-    if (!systemCode.trim() || !location.trim() || !simNumber.trim()) return;
+    if (!location.trim() || !simNumber.trim()) {
+      setError('Location and SIM number are required');
+      return;
+    }
 
     setError('');
     setSuccess('');
+    setIsGenerating(true);
+
     try {
-      if (editingSystem) {
-        // Edit System
-        await updateSystem(editingSystem.id, {
-          location,
-          simNumber,
-          status: editingSystem.status
-        });
-        setSuccess('Alarm system updated successfully');
-        setEditingSystem(null);
-      } else {
-        // Create System
-        await createSystem({
-          systemCode,
-          location,
-          simNumber,
-          status: 'ACTIVE'
-        });
-        setSuccess('Alarm system registered successfully');
-      }
-      setSystemCode('');
+      const systemData = {
+        location: location.trim(),
+        simNumber: simNumber.trim(),
+        status: 'ACTIVE'
+      };
+
+      const result = await createSystem(systemData);
+      setSuccess(`✅ System created: ${result.systemCode}`);
       setLocation('');
       setSimNumber('');
       loadData();
-    } catch (err) {
-      setError(err.message || 'Failed to save alarm system');
+    } catch (errorMsg) {
+      setError(errorMsg.message || 'Failed to create system');
+    } finally {
+      setIsGenerating(false);
     }
   };
 
   const handleStartEditSystem = (system) => {
     setEditingSystem(system);
-    setSystemCode(system.systemCode);
     setLocation(system.location);
     setSimNumber(system.simNumber);
   };
 
+  const handleUpdateSystem = async (e) => {
+    e.preventDefault();
+    if (!location.trim() || !simNumber.trim()) {
+      setError('Location and SIM number are required');
+      return;
+    }
+
+    setError('');
+    setSuccess('');
+    try {
+      await updateSystem(editingSystem.id, {
+        location: location.trim(),
+        simNumber: simNumber.trim(),
+        status: editingSystem.status
+      });
+      setSuccess(`✅ System ${editingSystem.systemCode} updated successfully`);
+      setEditingSystem(null);
+      setLocation('');
+      setSimNumber('');
+      loadData();
+    } catch (errorMsg) {
+      setError(errorMsg.message || 'Failed to update system');
+    }
+  };
+
   const handleCancelEditSystem = () => {
     setEditingSystem(null);
-    setSystemCode('');
     setLocation('');
     setSimNumber('');
   };
@@ -174,25 +198,25 @@ export default function AdminPanel({ isOpen, onClose }) {
       await toggleSystemStatus(system.id, newStatus);
       setSuccess(`System ${system.systemCode} is now ${newStatus}`);
       loadData();
-    } catch (err) {
-      setError('Failed to change status');
+    } catch (errorMsg) {
+      setError(errorMsg.message || 'Failed to change status');
     }
   };
 
-  const handleDeleteSystem = async (systemId) => {
-    if (!window.confirm('Are you sure you want to delete this alarm system? This will remove all mapped logs.')) return;
+  const handleDeleteSystem = async (systemId, systemCode) => {
+    if (!window.confirm(`Are you sure you want to delete "${systemCode}"? This cannot be undone.`)) return;
     setError('');
     setSuccess('');
     try {
       await deleteSystem(systemId);
-      setSuccess('System deleted successfully');
+      setSuccess(`✅ System ${systemCode} deleted successfully`);
       loadData();
-    } catch (err) {
-      setError('Failed to delete system');
+    } catch (errorMsg) {
+      setError(errorMsg.message || 'Failed to delete system');
     }
   };
 
-  // Format status duration precisely
+  // Format status duration
   const formatDuration = (timestamp) => {
     if (!timestamp) return 'No status changes recorded';
     const start = new Date(timestamp);
@@ -312,14 +336,23 @@ export default function AdminPanel({ isOpen, onClose }) {
 
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono">Password</label>
-                    <input 
-                      type="password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-white placeholder-slate-600 focus:outline-none focus:border-red-500/50"
-                      required
-                    />
+                    <div className="relative">
+                      <input 
+                        type={showPassword ? 'text' : 'password'}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-white placeholder-slate-600 focus:outline-none focus:border-red-500/50 pr-10"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-1.5">
@@ -353,7 +386,7 @@ export default function AdminPanel({ isOpen, onClose }) {
                   ) : users.length === 0 ? (
                     <div className="p-6 text-center text-xs text-slate-500 font-mono">No users registered</div>
                   ) : (
-                    users.map(u => (
+                    users.map((u) => (
                       <div key={u.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-900/10 transition-colors">
                         <div>
                           <div className="flex items-center gap-2">
@@ -372,7 +405,7 @@ export default function AdminPanel({ isOpen, onClose }) {
                               {u.assignedSystems.length === 0 ? (
                                 <span className="text-[10px] text-slate-500 font-mono">No systems assigned</span>
                               ) : (
-                                u.assignedSystems.map(sys => (
+                                u.assignedSystems.map((sys) => (
                                   <span key={sys.id} className="bg-slate-800 text-slate-300 font-mono text-[10px] px-1.5 py-0.5 rounded-md border border-slate-700">
                                     {sys.systemCode}
                                   </span>
@@ -405,33 +438,32 @@ export default function AdminPanel({ isOpen, onClose }) {
               <div className="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-5 space-y-4">
                 <h3 className="text-sm font-bold tracking-wide uppercase text-white font-mono flex items-center gap-2">
                   <Cpu className="w-4 h-4 text-red-500" /> 
-                  {editingSystem ? 'Modify Alarm System' : 'Register Alarm System / Device'}
+                  {editingSystem ? 'Modify Alarm System' : 'Register New Alarm System'}
                 </h3>
                 
-                <form onSubmit={handleCreateOrUpdateSystem} className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+                <form onSubmit={editingSystem ? handleUpdateSystem : handleCreateSystem} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono">System Code</label>
-                    <input 
-                      type="text"
-                      value={systemCode}
-                      onChange={(e) => setSystemCode(e.target.value)}
-                      placeholder="ALARM-MAIN-0X"
-                      disabled={editingSystem !== null}
-                      className="w-full bg-slate-950 border border-slate-800 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg px-3 py-2 text-xs font-mono text-white placeholder-slate-600 focus:outline-none focus:border-red-500/50"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono">Location</label>
-                    <input 
-                      type="text"
-                      value={location}
-                      onChange={(e) => setLocation(e.target.value)}
-                      placeholder="e.g. Colombo 03"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-white placeholder-slate-600 focus:outline-none focus:border-red-500/50"
-                      required
-                    />
+                    <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono">
+                      System Code
+                    </label>
+                    <div className="relative">
+                      <input 
+                        type="text"
+                        value={editingSystem ? editingSystem.systemCode : 'Auto-generated'}
+                        disabled
+                        className={`w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-400 cursor-not-allowed ${
+                          editingSystem ? 'opacity-80' : ''
+                        }`}
+                      />
+                      {!editingSystem && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          <Zap className="w-4 h-4 text-emerald-500 animate-pulse" />
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-[9px] text-slate-500 font-mono">
+                      {editingSystem ? 'System code cannot be changed' : 'Auto-generated: ALARM-Z8B-XX'}
+                    </p>
                   </div>
 
                   <div className="space-y-1.5">
@@ -446,12 +478,35 @@ export default function AdminPanel({ isOpen, onClose }) {
                     />
                   </div>
 
-                  <div className="col-span-1 sm:col-span-3 flex gap-2">
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono">Location</label>
+                    <input 
+                      type="text"
+                      value={location}
+                      onChange={(e) => setLocation(e.target.value)}
+                      placeholder="e.g. Colombo 03 - Main Street Branch"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-white placeholder-slate-600 focus:outline-none focus:border-red-500/50"
+                      required
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2 flex gap-2">
                     <button
                       type="submit"
-                      className="flex-1 bg-slate-800 hover:bg-red-650 hover:text-white border border-slate-700 hover:border-red-500 font-bold py-2 rounded-lg text-xs font-mono tracking-wider uppercase transition-all flex items-center justify-center gap-1.5"
+                      disabled={isGenerating}
+                      className="flex-1 bg-slate-800 hover:bg-red-650 hover:text-white border border-slate-700 hover:border-red-500 font-bold py-2 rounded-lg text-xs font-mono tracking-wider uppercase transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
                     >
-                      <Save className="w-3.5 h-3.5" /> {editingSystem ? 'Save Changes' : 'Register System'}
+                      {isGenerating ? (
+                        <>
+                          <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-3.5 h-3.5" /> 
+                          {editingSystem ? 'Save Changes' : 'Register System'}
+                        </>
+                      )}
                     </button>
                     {editingSystem && (
                       <button
@@ -468,21 +523,32 @@ export default function AdminPanel({ isOpen, onClose }) {
 
               {/* Systems directory */}
               <div className="space-y-3">
-                <h3 className="text-sm font-bold tracking-wide uppercase text-white font-mono">Alarm Systems Directory</h3>
+                <div className="flex justify-between items-center">
+                  <h3 className="text-sm font-bold tracking-wide uppercase text-white font-mono">Alarm Systems Directory</h3>
+                  <button
+                    onClick={loadData}
+                    className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors"
+                    title="Refresh systems"
+                  >
+                    <RefreshCw className="w-4 h-4 text-slate-400" />
+                  </button>
+                </div>
                 
                 <div className="divide-y divide-slate-800/60 border border-slate-800 rounded-xl overflow-hidden bg-slate-950/20">
                   {loading ? (
                     <div className="p-6 text-center text-xs text-slate-500 font-mono">Loading systems directory...</div>
                   ) : systems.length === 0 ? (
-                    <div className="p-6 text-center text-xs text-slate-500 font-mono">No systems registered</div>
+                    <div className="p-6 text-center text-xs text-slate-500 font-mono">
+                      No systems registered. Create your first system above.
+                    </div>
                   ) : (
-                    systems.map(sys => {
+                    systems.map((sys) => {
                       const isActive = sys.status === 'ACTIVE';
                       return (
                         <div key={sys.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-900/10 transition-colors">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
-                              <span className="font-mono font-bold text-sm text-white">{sys.systemCode}</span>
+                              <span className="font-mono font-bold text-sm text-emerald-400">{sys.systemCode}</span>
                               <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
                                 isActive 
                                   ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
@@ -525,7 +591,7 @@ export default function AdminPanel({ isOpen, onClose }) {
 
                             {/* Delete Button */}
                             <button
-                              onClick={() => handleDeleteSystem(sys.id)}
+                              onClick={() => handleDeleteSystem(sys.id, sys.systemCode)}
                               title="Delete System"
                               className="p-1.5 bg-red-500/10 hover:bg-red-650 text-red-400 hover:text-white border border-red-500/20 hover:border-red-500 rounded-lg transition-all"
                             >
@@ -543,7 +609,7 @@ export default function AdminPanel({ isOpen, onClose }) {
         </div>
       </div>
 
-      {/* Assignment Modal dialog (USER tab only) */}
+      {/* Assignment Modal dialog */}
       {selectedUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => setSelectedUser(null)} />
@@ -560,7 +626,7 @@ export default function AdminPanel({ isOpen, onClose }) {
             <div className="p-5 space-y-4 max-h-[300px] overflow-y-auto">
               <p className="text-xs text-slate-400">Select which alarm systems this user can monitor:</p>
               <div className="space-y-2">
-                {systems.map(sys => {
+                {systems.map((sys) => {
                   const isChecked = userAssignedIds.includes(sys.id);
                   return (
                     <div 
@@ -607,3 +673,9 @@ export default function AdminPanel({ isOpen, onClose }) {
     </div>
   );
 }
+
+// ========== PROPTYPES VALIDATION ==========
+AdminPanel.propTypes = {
+  isOpen: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
+};

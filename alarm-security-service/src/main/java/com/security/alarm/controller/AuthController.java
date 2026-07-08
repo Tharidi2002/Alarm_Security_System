@@ -2,7 +2,7 @@ package com.security.alarm.controller;
 
 import com.security.alarm.entity.User;
 import com.security.alarm.entity.UserSystem;
-import com.security.alarm.entity.AlarmSystem;
+// import com.security.alarm.entity.AlarmSystem;
 import com.security.alarm.repository.UserRepository;
 import com.security.alarm.repository.UserSystemRepository;
 import com.security.alarm.repository.AlarmSystemRepository;
