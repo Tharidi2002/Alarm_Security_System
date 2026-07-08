@@ -3,7 +3,8 @@ import PropTypes from 'prop-types';
 import { 
   X, UserPlus, ShieldAlert, Check, Plus, AlertCircle, Users, Cpu, 
   ToggleLeft, ToggleRight, Edit2, Trash2, Save, Eye, EyeOff,
-  RefreshCw, Zap, Copy, CheckCircle as CheckCircleIcon
+  RefreshCw, Zap, Copy, CheckCircle as CheckCircleIcon,
+  Key, Lock
 } from 'lucide-react';
 import { 
   fetchUsers, 
@@ -13,7 +14,8 @@ import {
   createSystem,
   updateSystem,
   toggleSystemStatus,
-  deleteSystem
+  deleteSystem,
+  resetUserPassword
 } from '../services/api';
 
 export default function AdminPanel({ isOpen, onClose }) {
@@ -42,9 +44,15 @@ export default function AdminPanel({ isOpen, onClose }) {
   const [generatedCode, setGeneratedCode] = useState('');
   const [copied, setCopied] = useState(false);
 
+  // Reset Password states
+  const [resetUser, setResetUser] = useState(null);
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+
   const [timeNow, setTimeNow] = useState(new Date());
 
-  // ===== NEW: Fetch latest system code on load =====
   useEffect(() => {
     if (isOpen && activeTab === 'SYSTEMS') {
       fetchLatestSystemCode();
@@ -62,12 +70,10 @@ export default function AdminPanel({ isOpen, onClose }) {
     return () => clearInterval(interval);
   }, []);
 
-  // ===== NEW: Fetch latest system code =====
   const fetchLatestSystemCode = async () => {
     try {
       const systemsData = await fetchSystems();
       if (systemsData && systemsData.length > 0) {
-        // Find the last system code
         const z8bSystems = systemsData
           .filter(s => s.systemCode && s.systemCode.startsWith('ALARM-Z8B-'))
           .sort((a, b) => {
@@ -103,7 +109,6 @@ export default function AdminPanel({ isOpen, onClose }) {
       ]);
       setUsers(usersData);
       setSystems(systemsData);
-      // Refresh generated code
       if (activeTab === 'SYSTEMS') {
         await fetchLatestSystemCode();
       }
@@ -114,7 +119,6 @@ export default function AdminPanel({ isOpen, onClose }) {
     }
   };
 
-  // ===== NEW: Copy system code to clipboard =====
   const copyToClipboard = () => {
     if (generatedCode) {
       navigator.clipboard.writeText(generatedCode);
@@ -174,6 +178,53 @@ export default function AdminPanel({ isOpen, onClose }) {
     }
   };
 
+  // ========== RESET PASSWORD HANDLER ==========
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    
+    if (!resetNewPassword.trim()) {
+      setError('New password is required');
+      return;
+    }
+    if (resetNewPassword.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+    
+    setResetLoading(true);
+    setError('');
+    setSuccess('');
+    
+    try {
+      const result = await resetUserPassword(resetUser.id, resetNewPassword.trim());
+      setSuccess(`✅ Password reset successfully for ${result.username}`);
+      setShowResetPassword(false);
+      setResetUser(null);
+      setResetNewPassword('');
+      loadData();
+    } catch (errorMsg) {
+      setError(errorMsg.message || 'Failed to reset password');
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  const openResetPasswordModal = (user) => {
+    setResetUser(user);
+    setResetNewPassword('');
+    setShowResetPassword(true);
+    setError('');
+    setSuccess('');
+  };
+
+  const closeResetPasswordModal = () => {
+    setShowResetPassword(false);
+    setResetUser(null);
+    setResetNewPassword('');
+    setError('');
+    setSuccess('');
+  };
+
   // ========== SYSTEM MANAGEMENT ==========
   const handleCreateSystem = async (e) => {
     e.preventDefault();
@@ -198,7 +249,7 @@ export default function AdminPanel({ isOpen, onClose }) {
       setLocation('');
       setSimNumber('');
       await loadData();
-      await fetchLatestSystemCode(); // Refresh the generated code
+      await fetchLatestSystemCode();
     } catch (errorMsg) {
       setError(errorMsg.message || 'Failed to create system');
     } finally {
@@ -303,16 +354,13 @@ export default function AdminPanel({ isOpen, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-end font-sans">
-      {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
         onClick={onClose}
       />
 
-      {/* Panel Drawer */}
       <div className="w-full max-w-2xl h-full bg-slate-900 border-l border-slate-800 text-slate-100 flex flex-col relative z-10 shadow-2xl animate-slide-left">
         
-        {/* Header */}
         <div className="p-6 border-b border-slate-800 bg-slate-950/40">
           <div className="flex justify-between items-center mb-4">
             <div className="flex items-center gap-2.5">
@@ -327,7 +375,6 @@ export default function AdminPanel({ isOpen, onClose }) {
             </button>
           </div>
 
-          {/* Navigation Tabs */}
           <div className="flex gap-2">
             <button
               onClick={() => { setActiveTab('USERS'); setError(''); setSuccess(''); }}
@@ -352,7 +399,6 @@ export default function AdminPanel({ isOpen, onClose }) {
           </div>
         </div>
 
-        {/* Content (Scrollable) */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {error && (
             <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 flex items-start gap-2.5 text-sm text-red-400">
@@ -371,7 +417,6 @@ export default function AdminPanel({ isOpen, onClose }) {
           {/* TAB 1: USERS MANAGEMENT */}
           {activeTab === 'USERS' && (
             <>
-              {/* Create User Form */}
               <div className="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-5 space-y-4">
                 <h3 className="text-sm font-bold tracking-wide uppercase text-white font-mono flex items-center gap-2">
                   <UserPlus className="w-4 h-4 text-red-500" /> Register Security User
@@ -432,7 +477,6 @@ export default function AdminPanel({ isOpen, onClose }) {
                 </form>
               </div>
 
-              {/* User List */}
               <div className="space-y-3">
                 <h3 className="text-sm font-bold tracking-wide uppercase text-white font-mono">Security User Directory</h3>
                 
@@ -471,14 +515,27 @@ export default function AdminPanel({ isOpen, onClose }) {
                           )}
                         </div>
 
-                        {u.role === 'USER' && (
-                          <button
-                            onClick={() => handleSelectUserToAssign(u)}
-                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-mono transition-all text-slate-300 hover:text-white flex-shrink-0"
-                          >
-                            Assign Systems
-                          </button>
-                        )}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {u.role !== 'ADMIN' && (
+                            <button
+                              onClick={() => openResetPasswordModal(u)}
+                              className="px-3 py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 hover:text-yellow-300 border border-yellow-500/30 hover:border-yellow-500/50 rounded-lg text-xs font-mono transition-all flex items-center gap-1.5"
+                              title="Reset user password"
+                            >
+                              <Key className="w-3.5 h-3.5" />
+                              Reset Password
+                            </button>
+                          )}
+                          
+                          {u.role === 'USER' && (
+                            <button
+                              onClick={() => handleSelectUserToAssign(u)}
+                              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-mono transition-all text-slate-300 hover:text-white flex-shrink-0"
+                            >
+                              Assign Systems
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))
                   )}
@@ -490,7 +547,6 @@ export default function AdminPanel({ isOpen, onClose }) {
           {/* TAB 2: SYSTEMS/DEVICES MANAGEMENT */}
           {activeTab === 'SYSTEMS' && (
             <>
-              {/* Register / Edit System Form */}
               <div className="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-5 space-y-4">
                 <h3 className="text-sm font-bold tracking-wide uppercase text-white font-mono flex items-center gap-2">
                   <Cpu className="w-4 h-4 text-red-500" /> 
@@ -498,7 +554,6 @@ export default function AdminPanel({ isOpen, onClose }) {
                 </h3>
                 
                 <form onSubmit={editingSystem ? handleUpdateSystem : handleCreateSystem} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* ===== SYSTEM CODE - NOW SHOWING ===== */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono flex items-center gap-2">
                       System Code
@@ -597,7 +652,6 @@ export default function AdminPanel({ isOpen, onClose }) {
                 </form>
               </div>
 
-              {/* Systems directory */}
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
                   <h3 className="text-sm font-bold tracking-wide uppercase text-white font-mono">Alarm Systems Directory</h3>
@@ -643,7 +697,6 @@ export default function AdminPanel({ isOpen, onClose }) {
                           </div>
 
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            {/* Toggle Switch */}
                             <button
                               onClick={() => handleToggleStatus(sys)}
                               title={isActive ? 'Deactivate System' : 'Activate System'}
@@ -656,7 +709,6 @@ export default function AdminPanel({ isOpen, onClose }) {
                               {isActive ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
                             </button>
 
-                            {/* Edit Button */}
                             <button
                               onClick={() => handleStartEditSystem(sys)}
                               title="Edit System Info"
@@ -665,7 +717,6 @@ export default function AdminPanel({ isOpen, onClose }) {
                               <Edit2 className="w-4 h-4" />
                             </button>
 
-                            {/* Delete Button */}
                             <button
                               onClick={() => handleDeleteSystem(sys.id, sys.systemCode)}
                               title="Delete System"
@@ -685,7 +736,7 @@ export default function AdminPanel({ isOpen, onClose }) {
         </div>
       </div>
 
-      {/* Assignment Modal dialog */}
+      {/* Assignment Modal */}
       {selectedUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => setSelectedUser(null)} />
@@ -746,11 +797,108 @@ export default function AdminPanel({ isOpen, onClose }) {
           </div>
         </div>
       )}
+
+      {/* Reset Password Modal */}
+      {showResetPassword && resetUser && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full shadow-2xl shadow-yellow-500/10 animate-in fade-in duration-200">
+            <div className="flex justify-between items-center p-5 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <Key className="w-5 h-5 text-yellow-500" />
+                <h3 className="text-lg font-bold text-white">Reset Password</h3>
+              </div>
+              <button 
+                onClick={closeResetPasswordModal}
+                className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+
+            <form onSubmit={handleResetPassword} className="p-5 space-y-4">
+              <div>
+                <p className="text-sm text-slate-400 mb-1">
+                  Resetting password for: 
+                  <span className="text-white font-bold ml-1">{resetUser.username}</span>
+                </p>
+                <p className="text-xs text-slate-500">
+                  Role: <span className="text-blue-400">{resetUser.role}</span>
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold tracking-wide uppercase text-slate-400 font-mono">
+                  New Password
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-500" />
+                  <input
+                    type={showNewPassword ? 'text' : 'password'}
+                    value={resetNewPassword}
+                    onChange={(e) => setResetNewPassword(e.target.value)}
+                    placeholder="Min 6 characters"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-11 pr-12 py-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-yellow-500/50 focus:ring-1 focus:ring-yellow-500/50 transition-all font-mono"
+                    required
+                    minLength={6}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute right-3.5 top-3.5 text-slate-500 hover:text-slate-300 transition-colors"
+                  >
+                    {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 font-mono">
+                  Password must be at least 6 characters
+                </p>
+              </div>
+
+              {error && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 flex items-start gap-2.5 text-sm text-red-400">
+                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              {success && (
+                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 flex items-start gap-2.5 text-sm text-emerald-400">
+                  <Check className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <span>{success}</span>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeResetPasswordModal}
+                  className="flex-1 py-2.5 border border-slate-700 text-slate-400 hover:text-white rounded-xl text-sm font-mono transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={resetLoading}
+                  className="flex-1 py-2.5 bg-gradient-to-r from-yellow-600 to-yellow-700 hover:from-yellow-500 hover:to-yellow-600 text-white font-bold rounded-xl text-sm font-mono transition-all uppercase tracking-wide flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {resetLoading ? (
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <Key className="w-4 h-4" />
+                      Reset Password
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// ===== PROPTYPES =====
 AdminPanel.propTypes = {
   isOpen: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,

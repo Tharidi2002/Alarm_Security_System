@@ -105,8 +105,7 @@ export const deleteSystem = async (systemId) => {
   return true;
 };
 
-// ========== NEW RESOLVE API FUNCTIONS ==========
-
+// ========== RESOLVE ALERT ==========
 export const resolveAlert = async (alertId, resolvedBy, description) => {
   try {
     const url = description 
@@ -148,4 +147,18 @@ export const getPendingCount = async () => {
     console.error('Error fetching counts:', error);
     return { pending: 0, resolved: 0 };
   }
+};
+
+// ========== RESET USER PASSWORD ==========
+export const resetUserPassword = async (userId, newPassword) => {
+  const response = await fetch(`${API_BASE_URL}/admin/users/${userId}/reset-password`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ newPassword }),
+  });
+  if (!response.ok) {
+    const errorMsg = await response.text();
+    throw new Error(errorMsg || 'Failed to reset password');
+  }
+  return await response.json();
 };

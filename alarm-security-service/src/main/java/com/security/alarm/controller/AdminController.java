@@ -104,9 +104,41 @@ public class AdminController {
         return ResponseEntity.ok("Systems assigned successfully");
     }
 
+    // ========== RESET USER PASSWORD ==========
+    @PutMapping("/users/{userId}/reset-password")
+    public ResponseEntity<?> resetUserPassword(
+            @PathVariable Long userId,
+            @RequestBody Map<String, String> payload) {
+        
+        String newPassword = payload.get("newPassword");
+        
+        if (newPassword == null || newPassword.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body("New password is required");
+        }
+        if (newPassword.length() < 6) {
+            return ResponseEntity.badRequest().body("Password must be at least 6 characters");
+        }
+        
+        Optional<User> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        User user = userOpt.get();
+        user.setPassword(passwordEncoder.encode(newPassword.trim()));
+        userRepository.save(user);
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", "Password reset successfully for user: " + user.getUsername());
+        response.put("userId", user.getId());
+        response.put("username", user.getUsername());
+        
+        return ResponseEntity.ok(response);
+    }
+
     // ========== ALARM SYSTEM MANAGEMENT ==========
 
-    // ===== FIXED: Generate next system code safely =====
     private String generateNextSystemCode() {
         Optional<String> latestCodeOpt = alarmSystemRepository.findLatestSystemCode();
         
@@ -135,7 +167,6 @@ public class AdminController {
 
     @PostMapping("/systems")
     public ResponseEntity<?> createSystem(@RequestBody AlarmSystem system) {
-        // Validate required fields
         if (system.getLocation() == null || system.getLocation().trim().isEmpty()) {
             return ResponseEntity.badRequest().body("Location is required");
         }
@@ -143,15 +174,12 @@ public class AdminController {
             return ResponseEntity.badRequest().body("SIM number is required");
         }
 
-        // Check if SIM number already exists
         if (alarmSystemRepository.findBySimNumber(system.getSimNumber()).isPresent()) {
             return ResponseEntity.badRequest().body("SIM number already registered to another system");
         }
 
-        // Auto-generate system code
         String newSystemCode = generateNextSystemCode();
         
-        // Safety check - if code already exists, try next
         int counter = 0;
         while (alarmSystemRepository.findBySystemCode(newSystemCode).isPresent() && counter < 100) {
             try {
