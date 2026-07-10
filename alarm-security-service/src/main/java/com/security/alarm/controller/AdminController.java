@@ -324,4 +324,30 @@ public class AdminController {
             return ResponseEntity.status(500).body("Failed to delete system: " + e.getMessage());
         }
     }
+
+    // ===== DELETE USER =====
+    @DeleteMapping("/users/{userId}")
+    public ResponseEntity<?> deleteUser(@PathVariable Long userId) {
+        Optional<User> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        User user = userOpt.get();
+        
+        // Don't allow deleting admin users
+        if ("ADMIN".equalsIgnoreCase(user.getRole())) {
+            return ResponseEntity.badRequest().body("Cannot delete admin users");
+        }
+        
+        try {
+            // Delete user-system mappings first
+            userSystemRepository.deleteByUserId(userId);
+            // Delete user
+            userRepository.deleteById(userId);
+            return ResponseEntity.ok("User deleted successfully");
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Failed to delete user: " + e.getMessage());
+        }
+    }
 }

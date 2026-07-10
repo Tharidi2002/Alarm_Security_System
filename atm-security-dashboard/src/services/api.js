@@ -205,3 +205,15 @@ export const fetchZoneTypes = async () => {
   if (!response.ok) throw new Error('Failed to fetch zone types');
   return await response.json();
 };
+
+// ===== DELETE USER =====
+export const deleteUser = async (userId) => {
+  const response = await fetch(`${API_BASE_URL}/admin/users/${userId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const errorMsg = await response.text();
+    throw new Error(errorMsg || 'Failed to delete user');
+  }
+  return true;
+};

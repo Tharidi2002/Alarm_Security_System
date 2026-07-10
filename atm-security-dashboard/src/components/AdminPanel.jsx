@@ -4,7 +4,7 @@ import {
   X, UserPlus, ShieldAlert, Check, Plus, AlertCircle, Users, Cpu, 
   ToggleLeft, ToggleRight, Edit2, Trash2, Save, Eye, EyeOff,
   RefreshCw, Zap, Copy, CheckCircle as CheckCircleIcon,
-  Key, Lock, Layers
+  Key, Lock, Layers, Trash, Search
 } from 'lucide-react';
 import { 
   fetchUsers, 
@@ -15,7 +15,8 @@ import {
   updateSystem,
   toggleSystemStatus,
   deleteSystem,
-  resetUserPassword
+  resetUserPassword,
+  deleteUser
 } from '../services/api';
 import ZoneManagement from './ZoneManagement';
 
@@ -56,6 +57,9 @@ export default function AdminPanel({ isOpen, onClose }) {
   const [zoneManagementOpen, setZoneManagementOpen] = useState(false);
   const [selectedSystemId, setSelectedSystemId] = useState(null);
   const [selectedSystemCode, setSelectedSystemCode] = useState('');
+
+  // ===== NEW: User Search state =====
+  const [userSearchQuery, setUserSearchQuery] = useState('');
 
   const [timeNow, setTimeNow] = useState(new Date());
 
@@ -153,6 +157,21 @@ export default function AdminPanel({ isOpen, onClose }) {
       loadData();
     } catch (errorMsg) {
       setError(errorMsg.message || 'Failed to create user');
+    }
+  };
+
+  // ===== NEW: Delete User =====
+  const handleDeleteUser = async (userId, username) => {
+    if (!window.confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) return;
+    
+    setError('');
+    setSuccess('');
+    try {
+      await deleteUser(userId);
+      setSuccess(`User "${username}" deleted successfully`);
+      loadData();
+    } catch (errorMsg) {
+      setError(errorMsg.message || 'Failed to delete user');
     }
   };
 
@@ -356,6 +375,11 @@ export default function AdminPanel({ isOpen, onClose }) {
     return parts.length > 0 ? parts.join(', ') : 'just now';
   };
 
+  // ===== NEW: Filter users by search query =====
+  const filteredUsers = users.filter(user => 
+    user.username.toLowerCase().includes(userSearchQuery.toLowerCase())
+  );
+
   if (!isOpen) return null;
 
   return (
@@ -484,18 +508,50 @@ export default function AdminPanel({ isOpen, onClose }) {
               </div>
 
               <div className="space-y-3">
-                <h3 className="text-sm font-bold tracking-wide uppercase text-white font-mono">Security User Directory</h3>
+                <div className="flex justify-between items-center">
+                  <h3 className="text-sm font-bold tracking-wide uppercase text-white font-mono">Security User Directory</h3>
+                  <div className="flex items-center gap-2">
+                    {/* ===== NEW: Search Input ===== */}
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                      <input
+                        type="text"
+                        value={userSearchQuery}
+                        onChange={(e) => setUserSearchQuery(e.target.value)}
+                        placeholder="Search users..."
+                        className="bg-slate-800 border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-red-500/50 w-40"
+                      />
+                      {userSearchQuery && (
+                        <button
+                          onClick={() => setUserSearchQuery('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      onClick={loadData}
+                      className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors"
+                      title="Refresh users"
+                    >
+                      <RefreshCw className="w-4 h-4 text-slate-400" />
+                    </button>
+                  </div>
+                </div>
                 
                 <div className="divide-y divide-slate-800/60 border border-slate-800 rounded-xl overflow-hidden bg-slate-950/20">
                   {loading ? (
                     <div className="p-6 text-center text-xs text-slate-500 font-mono">Loading user directory...</div>
-                  ) : users.length === 0 ? (
-                    <div className="p-6 text-center text-xs text-slate-500 font-mono">No users registered</div>
+                  ) : filteredUsers.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-slate-500 font-mono">
+                      {userSearchQuery ? 'No users found matching your search' : 'No users registered'}
+                    </div>
                   ) : (
-                    users.map((u) => (
+                    filteredUsers.map((u) => (
                       <div key={u.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-900/10 transition-colors">
-                        <div>
-                          <div className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-mono font-bold text-sm text-white">{u.username}</span>
                             <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
                               u.role === 'ADMIN' 
@@ -521,24 +577,37 @@ export default function AdminPanel({ isOpen, onClose }) {
                           )}
                         </div>
 
-                        <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+                          {/* ===== DELETE BUTTON - Only for non-admin users ===== */}
+                          {u.role !== 'ADMIN' && (
+                            <button
+                              onClick={() => handleDeleteUser(u.id, u.username)}
+                              className="px-2 py-1.5 bg-red-500/10 hover:bg-red-650 text-red-400 hover:text-white border border-red-500/20 hover:border-red-500 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
+                              title="Delete user"
+                            >
+                              <Trash className="w-3.5 h-3.5" />
+                              Delete
+                            </button>
+                          )}
+                          
                           {u.role !== 'ADMIN' && (
                             <button
                               onClick={() => openResetPasswordModal(u)}
-                              className="px-3 py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 hover:text-yellow-300 border border-yellow-500/30 hover:border-yellow-500/50 rounded-lg text-xs font-mono transition-all flex items-center gap-1.5"
+                              className="px-2 py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 hover:text-yellow-300 border border-yellow-500/30 hover:border-yellow-500/50 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
                               title="Reset user password"
                             >
                               <Key className="w-3.5 h-3.5" />
-                              Reset Password
+                              Reset
                             </button>
                           )}
                           
                           {u.role === 'USER' && (
                             <button
                               onClick={() => handleSelectUserToAssign(u)}
-                              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-mono transition-all text-slate-300 hover:text-white flex-shrink-0"
+                              className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-[10px] font-mono transition-all text-slate-300 hover:text-white"
+                              title="Assign systems"
                             >
-                              Assign Systems
+                              Assign
                             </button>
                           )}
                         </div>
@@ -923,7 +992,7 @@ export default function AdminPanel({ isOpen, onClose }) {
           setZoneManagementOpen(false);
           setSelectedSystemId(null);
           setSelectedSystemCode('');
-          loadData(); // Refresh to update zone counts if needed
+          loadData();
         }}
       />
     </div>
