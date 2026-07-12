@@ -39,7 +39,6 @@ public class ReportService {
 
     private final AlarmZoneRepository alarmZoneRepository;
 
-    // Professional Colors
     private static final DeviceRgb PRIMARY_COLOR = new DeviceRgb(30, 58, 138);
     private static final DeviceRgb ACCENT_COLOR = new DeviceRgb(239, 68, 68);
     private static final DeviceRgb SUCCESS_COLOR = new DeviceRgb(34, 197, 94);
@@ -51,7 +50,7 @@ public class ReportService {
     }
 
     // ============================================================
-    // 1. GENERATE SUMMARY DATA
+    // GENERATE SUMMARY DATA
     // ============================================================
     public Map<String, Object> generateSummary(List<AlertLog> alerts, String username, String role) {
         Map<String, Object> summary = new LinkedHashMap<>();
@@ -70,7 +69,6 @@ public class ReportService {
         summary.put("generatedBy", username);
         summary.put("userRole", role);
         
-        // By System
         Map<String, Long> bySystem = alerts.stream()
             .filter(a -> a.getAlarmSystem() != null)
             .collect(Collectors.groupingBy(
@@ -79,7 +77,6 @@ public class ReportService {
             ));
         summary.put("bySystem", bySystem);
         
-        // By Zone
         Map<String, Long> byZone = new LinkedHashMap<>();
         alerts.stream()
             .filter(a -> a.getZoneNumbers() != null && !a.getZoneNumbers().isEmpty())
@@ -92,7 +89,6 @@ public class ReportService {
             });
         summary.put("byZone", byZone);
         
-        // Daily trend
         Map<String, Long> dailyTrend = alerts.stream()
             .collect(Collectors.groupingBy(
                 a -> a.getReceivedAt().format(DateTimeFormatter.ISO_LOCAL_DATE),
@@ -100,7 +96,6 @@ public class ReportService {
             ));
         summary.put("dailyTrend", dailyTrend);
         
-        // Resolved by user
         Map<String, Long> resolvedBy = alerts.stream()
             .filter(a -> "RESOLVED".equals(a.getStatus()) && a.getResolvedBy() != null)
             .collect(Collectors.groupingBy(
@@ -109,14 +104,12 @@ public class ReportService {
             ));
         summary.put("resolvedBy", resolvedBy);
         
-        // Average resolution time
         OptionalDouble avgTime = alerts.stream()
             .filter(a -> "RESOLVED".equals(a.getStatus()) && a.getPendingDurationSeconds() != null)
             .mapToLong(AlertLog::getPendingDurationSeconds)
             .average();
         summary.put("avgResolutionSeconds", avgTime.orElse(0));
         
-        // Status distribution
         Map<String, Long> statusDist = alerts.stream()
             .collect(Collectors.groupingBy(AlertLog::getStatus, Collectors.counting()));
         summary.put("statusDistribution", statusDist);
@@ -136,7 +129,7 @@ public class ReportService {
     }
 
     // ============================================================
-    // 2. GENERATE PROFESSIONAL PDF
+    // GENERATE PROFESSIONAL PDF
     // ============================================================
     public byte[] generateProfessionalPDF(Map<String, Object> summary, 
                                           LocalDateTime from, LocalDateTime to, 
@@ -152,36 +145,24 @@ public class ReportService {
             
             // Header
             Paragraph company = new Paragraph("ALARM SECURITY SYSTEM")
-                .setFont(boldFont)
-                .setFontSize(22)
-                .setFontColor(PRIMARY_COLOR)
-                .setTextAlignment(TextAlignment.CENTER)
-                .setMarginBottom(0);
+                .setFont(boldFont).setFontSize(22).setFontColor(PRIMARY_COLOR)
+                .setTextAlignment(TextAlignment.CENTER).setMarginBottom(0);
             document.add(company);
             
             Paragraph subtitle = new Paragraph("Professional Security Monitoring Report")
-                .setFont(font)
-                .setFontSize(12)
-                .setFontColor(ColorConstants.DARK_GRAY)
-                .setTextAlignment(TextAlignment.CENTER)
-                .setMarginBottom(15);
+                .setFont(font).setFontSize(12).setFontColor(ColorConstants.DARK_GRAY)
+                .setTextAlignment(TextAlignment.CENTER).setMarginBottom(15);
             document.add(subtitle);
             
-            // Divider
             Table divider = new Table(UnitValue.createPercentArray(new float[]{1}))
                 .setWidth(UnitValue.createPercentValue(100));
-            Cell dividerCell = new Cell()
-                .setBackgroundColor(PRIMARY_COLOR)
-                .setHeight(2)
-                .setBorder(Border.NO_BORDER);
+            Cell dividerCell = new Cell().setBackgroundColor(PRIMARY_COLOR).setHeight(2).setBorder(Border.NO_BORDER);
             divider.addCell(dividerCell);
             document.add(divider);
             
             // Report Info
             Table infoTable = new Table(UnitValue.createPercentArray(new float[]{1, 2}))
-                .setWidth(UnitValue.createPercentValue(100))
-                .setMarginTop(15)
-                .setMarginBottom(15);
+                .setWidth(UnitValue.createPercentValue(100)).setMarginTop(15).setMarginBottom(15);
             
             String[][] infoData = {
                 {"Report Type", "Summary Report"},
@@ -194,11 +175,9 @@ public class ReportService {
             
             for (String[] row : infoData) {
                 Cell labelCell = new Cell().add(new Paragraph(row[0]).setFont(boldFont).setFontSize(10))
-                    .setBorder(Border.NO_BORDER)
-                    .setPadding(2);
+                    .setBorder(Border.NO_BORDER).setPadding(2);
                 Cell valueCell = new Cell().add(new Paragraph(row[1]).setFont(font).setFontSize(10))
-                    .setBorder(Border.NO_BORDER)
-                    .setPadding(2);
+                    .setBorder(Border.NO_BORDER).setPadding(2);
                 infoTable.addCell(labelCell);
                 infoTable.addCell(valueCell);
             }
@@ -206,35 +185,21 @@ public class ReportService {
             
             // Stats Cards
             Table statsTable = new Table(UnitValue.createPercentArray(new float[]{1, 1, 1, 1}))
-                .setWidth(UnitValue.createPercentValue(100))
-                .setMarginBottom(20);
+                .setWidth(UnitValue.createPercentValue(100)).setMarginBottom(20);
             
             Object[][] statsData = {
                 {"Total Alerts", summary.get("totalAlerts"), PRIMARY_COLOR},
                 {"Pending", summary.get("pending"), ACCENT_COLOR},
                 {"Resolved", summary.get("resolved"), SUCCESS_COLOR},
-                {"CALL/ARMED", 
-                 String.valueOf((long)summary.get("call") + (long)summary.get("armed")), 
-                 WARNING_COLOR}
+                {"CALL/ARMED", String.valueOf((long)summary.get("call") + (long)summary.get("armed")), WARNING_COLOR}
             };
             
             for (Object[] row : statsData) {
-                Cell cell = new Cell()
-                    .setBackgroundColor((DeviceRgb) row[2])
-                    .setPadding(10)
-                    .setTextAlignment(TextAlignment.CENTER);
-                
-                Paragraph value = new Paragraph(String.valueOf(row[1]))
-                    .setFont(boldFont)
-                    .setFontSize(24)
-                    .setFontColor(ColorConstants.WHITE)
-                    .setTextAlignment(TextAlignment.CENTER);
-                Paragraph label = new Paragraph((String) row[0])
-                    .setFont(font)
-                    .setFontSize(10)
-                    .setFontColor(ColorConstants.WHITE)
-                    .setTextAlignment(TextAlignment.CENTER);
-                
+                Cell cell = new Cell().setBackgroundColor((DeviceRgb) row[2]).setPadding(10).setTextAlignment(TextAlignment.CENTER);
+                Paragraph value = new Paragraph(String.valueOf(row[1])).setFont(boldFont).setFontSize(24)
+                    .setFontColor(ColorConstants.WHITE).setTextAlignment(TextAlignment.CENTER);
+                Paragraph label = new Paragraph((String) row[0]).setFont(font).setFontSize(10)
+                    .setFontColor(ColorConstants.WHITE).setTextAlignment(TextAlignment.CENTER);
                 cell.add(value);
                 cell.add(label);
                 statsTable.addCell(cell);
@@ -248,10 +213,7 @@ public class ReportService {
                 Map<String, Long> bySystem = (Map<String, Long>) bySystemObj;
                 if (!bySystem.isEmpty()) {
                     Paragraph sysTitle = new Paragraph("Alerts by System")
-                        .setFont(boldFont)
-                        .setFontSize(14)
-                        .setFontColor(PRIMARY_COLOR)
-                        .setMarginBottom(10);
+                        .setFont(boldFont).setFontSize(14).setFontColor(PRIMARY_COLOR).setMarginBottom(10);
                     document.add(sysTitle);
                     
                     Table sysTable = new Table(UnitValue.createPercentArray(new float[]{2, 1, 1}))
@@ -260,21 +222,16 @@ public class ReportService {
                     String[] sysHeaders = {"System", "Alerts", "%"};
                     for (String h : sysHeaders) {
                         Cell hc = new Cell().add(new Paragraph(h).setFont(boldFont).setFontSize(10))
-                            .setBackgroundColor(HEADER_BG)
-                            .setBorder(new SolidBorder(ColorConstants.LIGHT_GRAY, 0.5f))
-                            .setPadding(5);
+                            .setBackgroundColor(HEADER_BG).setBorder(new SolidBorder(ColorConstants.LIGHT_GRAY, 0.5f)).setPadding(5);
                         sysTable.addCell(hc);
                     }
                     
                     long total = (long) summary.get("totalAlerts");
                     for (Map.Entry<String, Long> entry : bySystem.entrySet()) {
                         double pct = total > 0 ? (entry.getValue() * 100.0 / total) : 0;
-                        sysTable.addCell(new Cell().add(new Paragraph(entry.getKey()).setFont(font).setFontSize(9))
-                            .setPadding(4));
-                        sysTable.addCell(new Cell().add(new Paragraph(String.valueOf(entry.getValue())).setFont(font).setFontSize(9))
-                            .setPadding(4));
-                        sysTable.addCell(new Cell().add(new Paragraph(String.format("%.1f%%", pct)).setFont(font).setFontSize(9))
-                            .setPadding(4));
+                        sysTable.addCell(new Cell().add(new Paragraph(entry.getKey()).setFont(font).setFontSize(9)).setPadding(4));
+                        sysTable.addCell(new Cell().add(new Paragraph(String.valueOf(entry.getValue())).setFont(font).setFontSize(9)).setPadding(4));
+                        sysTable.addCell(new Cell().add(new Paragraph(String.format("%.1f%%", pct)).setFont(font).setFontSize(9)).setPadding(4));
                     }
                     document.add(sysTable);
                 }
@@ -287,11 +244,8 @@ public class ReportService {
                 Map<String, Long> byZone = (Map<String, Long>) byZoneObj;
                 if (!byZone.isEmpty()) {
                     Paragraph zoneTitle = new Paragraph("Alerts by Zone")
-                        .setFont(boldFont)
-                        .setFontSize(14)
-                        .setFontColor(PRIMARY_COLOR)
-                        .setMarginTop(15)
-                        .setMarginBottom(10);
+                        .setFont(boldFont).setFontSize(14).setFontColor(PRIMARY_COLOR)
+                        .setMarginTop(15).setMarginBottom(10);
                     document.add(zoneTitle);
                     
                     Table zoneTable = new Table(UnitValue.createPercentArray(new float[]{2, 1, 1}))
@@ -300,9 +254,7 @@ public class ReportService {
                     String[] zoneHeaders = {"Zone", "Alerts", "%"};
                     for (String h : zoneHeaders) {
                         Cell hc = new Cell().add(new Paragraph(h).setFont(boldFont).setFontSize(10))
-                            .setBackgroundColor(HEADER_BG)
-                            .setBorder(new SolidBorder(ColorConstants.LIGHT_GRAY, 0.5f))
-                            .setPadding(5);
+                            .setBackgroundColor(HEADER_BG).setBorder(new SolidBorder(ColorConstants.LIGHT_GRAY, 0.5f)).setPadding(5);
                         zoneTable.addCell(hc);
                     }
                     
@@ -311,12 +263,9 @@ public class ReportService {
                     sortedZoneEntries.sort((a, b) -> b.getValue().compareTo(a.getValue()));
                     for (Map.Entry<String, Long> entry : sortedZoneEntries.stream().limit(15).collect(Collectors.toList())) {
                         double pct = total > 0 ? (entry.getValue() * 100.0 / total) : 0;
-                        zoneTable.addCell(new Cell().add(new Paragraph(entry.getKey()).setFont(font).setFontSize(9))
-                            .setPadding(4));
-                        zoneTable.addCell(new Cell().add(new Paragraph(String.valueOf(entry.getValue())).setFont(font).setFontSize(9))
-                            .setPadding(4));
-                        zoneTable.addCell(new Cell().add(new Paragraph(String.format("%.1f%%", pct)).setFont(font).setFontSize(9))
-                            .setPadding(4));
+                        zoneTable.addCell(new Cell().add(new Paragraph(entry.getKey()).setFont(font).setFontSize(9)).setPadding(4));
+                        zoneTable.addCell(new Cell().add(new Paragraph(String.valueOf(entry.getValue())).setFont(font).setFontSize(9)).setPadding(4));
+                        zoneTable.addCell(new Cell().add(new Paragraph(String.format("%.1f%%", pct)).setFont(font).setFontSize(9)).setPadding(4));
                     }
                     document.add(zoneTable);
                 }
@@ -329,11 +278,8 @@ public class ReportService {
                 Map<String, Long> resolvedBy = (Map<String, Long>) resolvedByObj;
                 if (!resolvedBy.isEmpty()) {
                     Paragraph resTitle = new Paragraph("Resolved By")
-                        .setFont(boldFont)
-                        .setFontSize(14)
-                        .setFontColor(PRIMARY_COLOR)
-                        .setMarginTop(15)
-                        .setMarginBottom(10);
+                        .setFont(boldFont).setFontSize(14).setFontColor(PRIMARY_COLOR)
+                        .setMarginTop(15).setMarginBottom(10);
                     document.add(resTitle);
                     
                     Table resTable = new Table(UnitValue.createPercentArray(new float[]{2, 1, 1}))
@@ -342,33 +288,24 @@ public class ReportService {
                     String[] resHeaders = {"User", "Resolved", "%"};
                     for (String h : resHeaders) {
                         Cell hc = new Cell().add(new Paragraph(h).setFont(boldFont).setFontSize(10))
-                            .setBackgroundColor(HEADER_BG)
-                            .setBorder(new SolidBorder(ColorConstants.LIGHT_GRAY, 0.5f))
-                            .setPadding(5);
+                            .setBackgroundColor(HEADER_BG).setBorder(new SolidBorder(ColorConstants.LIGHT_GRAY, 0.5f)).setPadding(5);
                         resTable.addCell(hc);
                     }
                     
                     long totalResolved = (long) summary.get("resolved");
                     for (Map.Entry<String, Long> entry : resolvedBy.entrySet()) {
                         double pct = totalResolved > 0 ? (entry.getValue() * 100.0 / totalResolved) : 0;
-                        resTable.addCell(new Cell().add(new Paragraph(entry.getKey()).setFont(font).setFontSize(9))
-                            .setPadding(4));
-                        resTable.addCell(new Cell().add(new Paragraph(String.valueOf(entry.getValue())).setFont(font).setFontSize(9))
-                            .setPadding(4));
-                        resTable.addCell(new Cell().add(new Paragraph(String.format("%.1f%%", pct)).setFont(font).setFontSize(9))
-                            .setPadding(4));
+                        resTable.addCell(new Cell().add(new Paragraph(entry.getKey()).setFont(font).setFontSize(9)).setPadding(4));
+                        resTable.addCell(new Cell().add(new Paragraph(String.valueOf(entry.getValue())).setFont(font).setFontSize(9)).setPadding(4));
+                        resTable.addCell(new Cell().add(new Paragraph(String.format("%.1f%%", pct)).setFont(font).setFontSize(9)).setPadding(4));
                     }
                     document.add(resTable);
                 }
             }
             
-            // Footer
             Paragraph footer = new Paragraph("Confidential - For authorized use only")
-                .setFont(font)
-                .setFontSize(8)
-                .setFontColor(ColorConstants.GRAY)
-                .setTextAlignment(TextAlignment.CENTER)
-                .setMarginTop(30);
+                .setFont(font).setFontSize(8).setFontColor(ColorConstants.GRAY)
+                .setTextAlignment(TextAlignment.CENTER).setMarginTop(30);
             document.add(footer);
             
             document.close();
@@ -381,7 +318,7 @@ public class ReportService {
     }
 
     // ============================================================
-    // 3. GENERATE PROFESSIONAL EXCEL
+    // GENERATE PROFESSIONAL EXCEL
     // ============================================================
     public byte[] generateProfessionalExcel(Map<String, Object> summary, 
                                             LocalDateTime from, LocalDateTime to,
@@ -389,7 +326,6 @@ public class ReportService {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
             Workbook workbook = new XSSFWorkbook();
             
-            // Create styles
             CellStyle headerStyle = createHeaderStyle(workbook);
             CellStyle titleStyle = createTitleStyle(workbook);
             CellStyle greenStyle = createGreenStyle(workbook);
@@ -397,7 +333,6 @@ public class ReportService {
             CellStyle yellowStyle = createYellowStyle(workbook);
             CellStyle blueStyle = createBlueStyle(workbook);
             
-            // ===== SUMMARY SHEET =====
             Sheet summarySheet = workbook.createSheet("Summary");
             int rowNum = 0;
             
@@ -514,14 +449,39 @@ public class ReportService {
                 }
             }
             
-            // Auto-size columns
+            // Resolved By
+            Object resolvedByObj = summary.get("resolvedBy");
+            if (resolvedByObj instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Long> resolvedBy = (Map<String, Long>) resolvedByObj;
+                if (!resolvedBy.isEmpty()) {
+                    rowNum += 2;
+                    Row resTitle = summarySheet.createRow(rowNum++);
+                    resTitle.createCell(0).setCellValue("RESOLVED BY");
+                    resTitle.getCell(0).setCellStyle(headerStyle);
+                    
+                    Row resHeader = summarySheet.createRow(rowNum++);
+                    resHeader.createCell(0).setCellValue("User");
+                    resHeader.createCell(1).setCellValue("Resolved");
+                    resHeader.createCell(2).setCellValue("%");
+                    resHeader.getCell(0).setCellStyle(headerStyle);
+                    resHeader.getCell(1).setCellStyle(headerStyle);
+                    resHeader.getCell(2).setCellStyle(headerStyle);
+                    
+                    long totalResolved = (long) summary.get("resolved");
+                    for (Map.Entry<String, Long> entry : resolvedBy.entrySet()) {
+                        Row r = summarySheet.createRow(rowNum++);
+                        r.createCell(0).setCellValue(entry.getKey());
+                        r.createCell(1).setCellValue(entry.getValue());
+                        double pct = totalResolved > 0 ? (entry.getValue() * 100.0 / totalResolved) : 0;
+                        r.createCell(2).setCellValue(String.format("%.1f%%", pct));
+                    }
+                }
+            }
+            
             for (int i = 0; i < 3; i++) {
                 summarySheet.autoSizeColumn(i);
             }
-            
-            // ===== DETAILED SHEET =====
-            Sheet detailedSheet = workbook.createSheet("Detailed Alerts");
-            createDetailedSheet(workbook, detailedSheet);
             
             workbook.write(baos);
             workbook.close();
@@ -534,28 +494,7 @@ public class ReportService {
     }
 
     // ============================================================
-    // 4. CREATE DETAILED SHEET (Excel)
-    // ============================================================
-    private void createDetailedSheet(Workbook workbook, Sheet sheet) {
-        CellStyle headerStyle = createHeaderStyle(workbook);
-        
-        int rowNum = 0;
-        Row headerRow = sheet.createRow(rowNum++);
-        String[] headers = {"ID", "System", "Zones", "Alert Type", "Status", "Received", "Resolved By", "Duration"};
-        for (int i = 0; i < headers.length; i++) {
-            org.apache.poi.ss.usermodel.Cell cell = headerRow.createCell(i);
-            cell.setCellValue(headers[i]);
-            cell.setCellStyle(headerStyle);
-        }
-        
-        // Auto-size columns
-        for (int i = 0; i < headers.length; i++) {
-            sheet.autoSizeColumn(i);
-        }
-    }
-
-    // ============================================================
-    // 5. STYLE CREATION METHODS
+    // STYLE CREATION METHODS
     // ============================================================
     private CellStyle createHeaderStyle(Workbook workbook) {
         CellStyle style = workbook.createCellStyle();
@@ -627,7 +566,7 @@ public class ReportService {
     }
 
     // ============================================================
-    // 6. GENERATE SYSTEM HEALTH
+    // GENERATE SYSTEM HEALTH
     // ============================================================
     public Map<String, Object> generateSystemHealth(List<AlarmSystem> systems) {
         Map<String, Object> health = new LinkedHashMap<>();
@@ -674,17 +613,11 @@ public class ReportService {
         return health;
     }
 
-    // ============================================================
-    // 7. GET DETAILED ALERTS
-    // ============================================================
     public List<AlertLog> getDetailedAlerts(LocalDateTime from, LocalDateTime to, 
                                             String username, String systemCode, String status) {
         return new ArrayList<>();
     }
 
-    // ============================================================
-    // 8. GENERATE USER PERFORMANCE
-    // ============================================================
     public List<Map<String, Object>> generateUserPerformance(LocalDateTime from, LocalDateTime to) {
         return new ArrayList<>();
     }
