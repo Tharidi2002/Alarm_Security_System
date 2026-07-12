@@ -209,6 +209,7 @@ public class AdminController {
         AlarmSystem newSystem = new AlarmSystem();
         newSystem.setSystemCode(newSystemCode);
         newSystem.setLocation(system.getLocation().trim());
+        if (system.getDescription() != null) newSystem.setDescription(system.getDescription().trim());
         newSystem.setSimNumber(system.getSimNumber().trim());
         newSystem.setStatus(system.getStatus() != null ? system.getStatus() : "ACTIVE");
         newSystem.setLastStatusChangedAt(LocalDateTime.now());
@@ -284,6 +285,10 @@ public class AdminController {
 
         if (updated.getLocation() != null && !updated.getLocation().trim().isEmpty()) {
             existing.setLocation(updated.getLocation().trim());
+        }
+
+        if (updated.getDescription() != null) {
+            existing.setDescription(updated.getDescription().trim());
         }
 
         if (updated.getSimNumber() != null && !updated.getSimNumber().trim().isEmpty()) {

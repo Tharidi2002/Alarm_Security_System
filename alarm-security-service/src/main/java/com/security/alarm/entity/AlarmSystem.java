@@ -23,6 +23,9 @@ public class AlarmSystem {
     @Column(nullable = false)
     private String location;
 
+    @Column(length = 1024)
+    private String description;
+
     @Column(name = "sim_number", nullable = false)
     private String simNumber;
 

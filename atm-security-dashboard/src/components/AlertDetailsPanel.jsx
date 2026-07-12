@@ -133,7 +133,12 @@ export default function AlertDetailsPanel({ alert, isOpen, onClose, onResolved, 
             {/* Location */}
             <div className="flex items-center gap-2 text-slate-300 bg-slate-800/30 rounded-xl px-4 py-2.5">
               <MapPin className="w-4 h-4 text-slate-500 flex-shrink-0" />
-              <span className="text-sm">{alert.alarmSystem?.location || 'Unknown Location'}</span>
+              <div>
+                <div className="text-sm">{alert.alarmSystem?.location || 'Unknown Location'}</div>
+                {alert.alarmSystem?.description && (
+                  <div className="text-[12px] text-slate-500">{alert.alarmSystem.description}</div>
+                )}
+              </div>
             </div>
 
             {/* ===== ZONES - NOW SHOWING NAMES ===== */}

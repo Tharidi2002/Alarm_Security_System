@@ -40,6 +40,7 @@ export default function AdminPanel({ isOpen, onClose }) {
 
   // System form states
   const [location, setLocation] = useState('');
+  const [description, setDescription] = useState('');
   const [simNumber, setSimNumber] = useState('');
   const [editingSystem, setEditingSystem] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -265,6 +266,7 @@ export default function AdminPanel({ isOpen, onClose }) {
     try {
       const systemData = {
         location: location.trim(),
+        description: description.trim(),
         simNumber: simNumber.trim(),
         status: 'ACTIVE'
       };
@@ -272,6 +274,7 @@ export default function AdminPanel({ isOpen, onClose }) {
       const result = await createSystem(systemData);
       setSuccess(`✅ System created: ${result.systemCode}`);
       setLocation('');
+      setDescription('');
       setSimNumber('');
       await loadData();
       await fetchLatestSystemCode();
@@ -285,6 +288,7 @@ export default function AdminPanel({ isOpen, onClose }) {
   const handleStartEditSystem = (system) => {
     setEditingSystem(system);
     setLocation(system.location);
+    setDescription(system.description || '');
     setSimNumber(system.simNumber);
   };
 
@@ -300,12 +304,14 @@ export default function AdminPanel({ isOpen, onClose }) {
     try {
       await updateSystem(editingSystem.id, {
         location: location.trim(),
+        description: description.trim(),
         simNumber: simNumber.trim(),
         status: editingSystem.status
       });
       setSuccess(`✅ System ${editingSystem.systemCode} updated successfully`);
       setEditingSystem(null);
       setLocation('');
+      setDescription('');
       setSimNumber('');
       loadData();
       await fetchLatestSystemCode();
@@ -317,6 +323,7 @@ export default function AdminPanel({ isOpen, onClose }) {
   const handleCancelEditSystem = () => {
     setEditingSystem(null);
     setLocation('');
+    setDescription('');
     setSimNumber('');
     fetchLatestSystemCode();
   };
@@ -696,6 +703,17 @@ export default function AdminPanel({ isOpen, onClose }) {
                     />
                   </div>
 
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono">Description</label>
+                    <input
+                      type="text"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder="Short description (e.g., Bank: XYZ - Branch: ABC)"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-white placeholder-slate-600 focus:outline-none focus:border-red-500/50"
+                    />
+                  </div>
+
                   <div className="sm:col-span-2 flex gap-2">
                     <button
                       type="submit"
@@ -765,6 +783,9 @@ export default function AdminPanel({ isOpen, onClose }) {
                             <div className="text-xs text-slate-400 mt-1">
                               Location: <span className="text-slate-300 font-medium">{sys.location}</span> • SIM: <span className="font-mono text-slate-300">{sys.simNumber}</span>
                             </div>
+                            {sys.description && (
+                              <div className="text-[11px] text-slate-500 mt-1 truncate">{sys.description}</div>
+                            )}
                             <div className="text-[10px] text-slate-500 mt-0.5 font-mono">
                               {isActive ? 'Active for: ' : 'Inactive for: '} 
                               <span className="text-red-400/90 font-bold">{formatDuration(sys.lastStatusChangedAt)}</span>

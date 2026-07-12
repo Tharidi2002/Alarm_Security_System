@@ -58,7 +58,12 @@ export default function AlertModal({ alert, isOpen, onClose }) {
 
           <div className="flex items-center gap-2 text-slate-300">
             <MapPin className="w-4 h-4 text-slate-500" />
-            <span>{alert.alarmSystem?.location || 'Unknown Location'}</span>
+            <div>
+              <div>{alert.alarmSystem?.location || 'Unknown Location'}</div>
+              {alert.alarmSystem?.description && (
+                <div className="text-[12px] text-slate-500">{alert.alarmSystem.description}</div>
+              )}
+            </div>
           </div>
 
           <div className="flex items-start gap-2">
