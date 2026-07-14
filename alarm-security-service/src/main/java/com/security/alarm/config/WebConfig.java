@@ -10,10 +10,14 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
-                .allowedOrigins("http://localhost:5173", "http://localhost:3000")
+                .allowedOrigins(
+                        "https://alarm-security-system-jawa.vercel.app",
+                        "http://localhost:5173",
+                        "http://localhost:3000"
+                )
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")
                 .allowedHeaders("*")
-                .allowCredentials(false)  // Changed from true to false
+                .allowCredentials(false)
                 .maxAge(3600);
     }
 }
