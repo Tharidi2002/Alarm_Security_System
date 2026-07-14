@@ -17,8 +17,13 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/auth")
-@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:3000"}, allowCredentials = "false")
-
+@CrossOrigin(origins = {
+    "https://alarm-security-system-java.vercel.app",
+    "https://alarm-security-system-jawa.vercel.app",
+    "https://*.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000"
+}, allowCredentials = "true")
 public class AuthController {
 
     private final UserRepository userRepository;

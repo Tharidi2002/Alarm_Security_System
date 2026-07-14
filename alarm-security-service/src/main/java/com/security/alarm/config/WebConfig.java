@@ -18,13 +18,14 @@ public class WebConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         
         // ============================================================
-        // ALLOWED ORIGINS - Vercel Frontend Domains
+        // ALLOWED ORIGINS - Add ALL Vercel domains
         // ============================================================
         configuration.setAllowedOriginPatterns(List.of(
             // Vercel Production Domains
             "https://alarm-security-system-java.vercel.app",
             "https://alarm-security-system-jawa.vercel.app",
             "https://alarm-security-system-*.vercel.app",
+            "https://*.vercel.app",  // ALL Vercel domains
             
             // Railway Backend (Self)
             "https://alarmsecuritysystem-production.up.railway.app",
@@ -33,11 +34,7 @@ public class WebConfig {
             "http://localhost:5173",
             "http://localhost:3000",
             "http://127.0.0.1:5173",
-            "http://127.0.0.1:3000",
-            
-            // Network IPs (for testing)
-            "http://192.168.8.*:5173",
-            "http://192.168.8.*:3000"
+            "http://127.0.0.1:3000"
         ));
         
         // ============================================================
@@ -62,7 +59,7 @@ public class WebConfig {
         ));
         
         // ============================================================
-        // EXPOSED HEADERS (Frontend එකට පෙන්වන්න ඕන headers)
+        // EXPOSED HEADERS
         // ============================================================
         configuration.setExposedHeaders(List.of(
             "Authorization",
@@ -70,7 +67,7 @@ public class WebConfig {
         ));
         
         // ============================================================
-        // CREDENTIALS - Allow cookies/tokens
+        // CREDENTIALS
         // ============================================================
         configuration.setAllowCredentials(true);
         
@@ -94,8 +91,7 @@ public class WebConfig {
         FilterRegistrationBean<CorsFilter> bean = new FilterRegistrationBean<>(new CorsFilter(source));
         bean.setOrder(Ordered.HIGHEST_PRECEDENCE);
         
-        System.out.println("✅ CORS Configuration initialized with allowed origins: " + 
-                          configuration.getAllowedOriginPatterns());
+        System.out.println("✅ CORS Configuration updated with Vercel domains");
         
         return bean;
     }

@@ -13,7 +13,13 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/alerts")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = {
+    "https://alarm-security-system-java.vercel.app",
+    "https://alarm-security-system-jawa.vercel.app",
+    "https://*.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000"
+}, allowCredentials = "true")
 public class AlertController {
 
     private final AlertService alertService;

@@ -20,7 +20,13 @@ import com.security.alarm.repository.AlarmZoneRepository;
 
 @RestController
 @RequestMapping("/api/admin")
-@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:3000"}, allowCredentials = "false")
+@CrossOrigin(origins = {
+    "https://alarm-security-system-java.vercel.app",
+    "https://alarm-security-system-jawa.vercel.app",
+    "https://*.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000"
+}, allowCredentials = "true")
 public class AdminController {
 
     private final UserRepository userRepository;
