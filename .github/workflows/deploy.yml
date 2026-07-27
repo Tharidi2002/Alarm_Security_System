@@ -17,11 +17,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: actions/setup-buildx-action@v2
 
-      - name: Log in to Docker Hub
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v2
         with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and Push Backend Image
         uses: docker/build-push-action@v4
@@ -29,7 +30,7 @@ jobs:
           context: ./alarm-security-service
           file: ./alarm-security-service/Dockerfile
           push: true
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/alarm-backend:latest
+          tags: ghcr.io/tharidi2002/alarm-backend:latest
 
       - name: Build and Push Frontend Image
         uses: docker/build-push-action@v4
@@ -37,7 +38,7 @@ jobs:
           context: ./atm-security-dashboard
           file: ./atm-security-dashboard/Dockerfile
           push: true
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/alarm-frontend:latest
+          tags: ghcr.io/tharidi2002/alarm-frontend:latest
 
       - name: Copy docker-compose.yml to Droplet
         uses: appleboy/scp-action@master
@@ -57,7 +58,8 @@ jobs:
           script: |
             mkdir -p ~/alarm-app
             cd ~/alarm-app
-            export DOCKER_HUB_USERNAME=${{ secrets.DOCKER_HUB_USERNAME }}
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             docker compose down --remove-orphans || true
             docker compose pull
             docker compose up -d
+
