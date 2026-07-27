@@ -1,0 +1,43 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: alarm_mysql_db
+    restart: always
+    environment:
+      MYSQL_DATABASE: alarm
+      MYSQL_ROOT_PASSWORD: Ijse@123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  backend:
+    image: ${DOCKER_HUB_USERNAME}/alarm-backend:latest
+    build:
+      context: ./alarm-security-service
+      dockerfile: Dockerfile
+    container_name: alarm_backend
+    restart: always
+    depends_on:
+      - db
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/alarm?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: Ijse@123
+    ports:
+      - "8080:8080"
+
+  frontend:
+    image: ${DOCKER_HUB_USERNAME}/alarm-frontend:latest
+    build:
+      context: ./atm-security-dashboard
+      dockerfile: Dockerfile
+    container_name: alarm_frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  mysql_data:
