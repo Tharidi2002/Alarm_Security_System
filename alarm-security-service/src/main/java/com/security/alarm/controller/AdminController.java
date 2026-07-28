@@ -205,11 +205,12 @@ public class AdminController {
         newSystem.setStatus(system.getStatus() != null ? system.getStatus() : "ACTIVE");
         newSystem.setLastStatusChangedAt(LocalDateTime.now());
         
-        // ===== NEW: Z8B Panel Settings =====
+        // ===== Z8B Panel Settings =====
         newSystem.setPanelSimNumber(system.getSimNumber().trim());
         newSystem.setPanelPassword("8888");
         newSystem.setDisarmCommand("8888#2A");
         newSystem.setArmCommand("8888#1A");
+        newSystem.setSirenStopCommand("8888#5A");
         newSystem.setSirenStatus("OFF");
 
         AlarmSystem saved = alarmSystemRepository.save(newSystem);
@@ -290,7 +291,7 @@ public class AdminController {
             existing.setSimNumber(newSim);
         }
 
-        // ===== NEW: Update Z8B Panel Settings =====
+        // ===== Z8B Panel Settings =====
         if (updated.getPanelSimNumber() != null && !updated.getPanelSimNumber().trim().isEmpty()) {
             existing.setPanelSimNumber(updated.getPanelSimNumber().trim());
         }
@@ -302,6 +303,9 @@ public class AdminController {
         }
         if (updated.getArmCommand() != null && !updated.getArmCommand().trim().isEmpty()) {
             existing.setArmCommand(updated.getArmCommand().trim());
+        }
+        if (updated.getSirenStopCommand() != null && !updated.getSirenStopCommand().trim().isEmpty()) {
+            existing.setSirenStopCommand(updated.getSirenStopCommand().trim());
         }
 
         if (updated.getStatus() != null && !updated.getStatus().equalsIgnoreCase(existing.getStatus())) {

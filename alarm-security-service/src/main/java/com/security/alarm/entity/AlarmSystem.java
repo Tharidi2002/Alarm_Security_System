@@ -47,6 +47,9 @@ public class AlarmSystem {
     @Column(name = "arm_command")
     private String armCommand = "8888#1A";
 
+    @Column(name = "siren_stop_command")
+    private String sirenStopCommand = "8888#5A";
+
     @Column(name = "siren_status")
     private String sirenStatus = "OFF";
 }

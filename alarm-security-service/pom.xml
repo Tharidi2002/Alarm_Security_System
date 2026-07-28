@@ -92,6 +92,20 @@
 			<artifactId>commons-lang3</artifactId>
 			<version>3.14.0</version>
 		</dependency>
+		
+		<!-- SMS Gateway - Twilio -->
+		<dependency>
+			<groupId>com.twilio.sdk</groupId>
+			<artifactId>twilio</artifactId>
+			<version>9.0.0</version>
+		</dependency>
+
+		<!-- HTTP Client for SMS Gateway API -->
+		<dependency>
+			<groupId>org.apache.httpcomponents</groupId>
+			<artifactId>httpclient</artifactId>
+			<version>4.5.14</version>
+		</dependency>
 
 	</dependencies>
 

@@ -29,17 +29,20 @@ public class AlertService {
     private final AlarmZoneRepository alarmZoneRepository;
     private final UserRepository userRepository;
     private final UserSystemRepository userSystemRepository;
+    private final SmsService smsService;
 
     public AlertService(AlertLogRepository alertLogRepository, 
                         AlarmSystemRepository alarmSystemRepository,
                         AlarmZoneRepository alarmZoneRepository,
                         UserRepository userRepository,
-                        UserSystemRepository userSystemRepository) {
+                        UserSystemRepository userSystemRepository,
+                        SmsService smsService) {
         this.alertLogRepository = alertLogRepository;
         this.alarmSystemRepository = alarmSystemRepository;
         this.alarmZoneRepository = alarmZoneRepository;
         this.userRepository = userRepository;
         this.userSystemRepository = userSystemRepository;
+        this.smsService = smsService;
     }
 
     // ============================================================
@@ -57,13 +60,27 @@ public class AlertService {
         Optional<AlarmSystem> machineOpt = findSystem(atmCode, fromSimNumber);
 
         // ============================================================
-        // 1. SIREN_STOP - ONLY STOP SIREN, DO NOT RESOLVE ALERT
+        // 1. SIREN_STOP - Send SMS to panel and stop siren
         // ============================================================
         if (cleanMessage != null && cleanMessage.toUpperCase().contains("SIREN_STOP")) {
             if (machineOpt.isPresent()) {
-                // Update siren status to OFF
-                machineOpt.get().setSirenStatus("OFF");
-                alarmSystemRepository.save(machineOpt.get());
+                AlarmSystem system = machineOpt.get();
+                
+                // Send SMS to panel to stop siren
+                boolean smsSent = smsService.sendSirenStopCommand(
+                    system.getPanelSimNumber(),
+                    system.getPanelPassword()
+                );
+                
+                if (!smsSent) {
+                    // Log error but continue - maybe panel is offline
+                    alertLog.setResolutionDescription("SMS to panel failed: " + 
+                        (system.getPanelSimNumber() != null ? system.getPanelSimNumber() : "No panel SIM"));
+                }
+                
+                // Update siren status
+                system.setSirenStatus("OFF");
+                alarmSystemRepository.save(system);
                 
                 alertLog.setStatus("PENDING");
                 alertLog.setAlertType("SIREN_STOP");
@@ -71,24 +88,36 @@ public class AlertService {
                 alertLog.setZoneNumber(0);
                 alertLog.setZoneNumbers("00");
                 alertLog.setZoneNames("No Zone");
-                alertLog.setAlarmSystem(machineOpt.get());
-                alertLog.setResolutionDescription("Siren stopped by user. Alert still pending.");
+                alertLog.setAlarmSystem(system);
+                alertLog.setResolutionDescription("Siren stopped. Alert still pending.");
                 return alertLogRepository.save(alertLog);
             }
         }
 
         // ============================================================
-        // 2. DISARM - RESOLVE ALL ALERTS + SIREN OFF
+        // 2. DISARM - Send SMS to panel + Resolve all alerts
         // ============================================================
         if (cleanMessage != null && (cleanMessage.toUpperCase().contains("DISARM") || 
             cleanMessage.toUpperCase().contains("8888#2A"))) {
             if (machineOpt.isPresent()) {
+                AlarmSystem system = machineOpt.get();
+                
+                // Send SMS to panel to disarm
+                boolean smsSent = smsService.sendDisarmCommand(
+                    system.getPanelSimNumber(),
+                    system.getPanelPassword()
+                );
+                
+                if (!smsSent) {
+                    alertLog.setResolutionDescription("Disarm SMS to panel failed");
+                }
+                
                 // SIREN OFF
-                machineOpt.get().setSirenStatus("OFF");
-                alarmSystemRepository.save(machineOpt.get());
+                system.setSirenStatus("OFF");
+                alarmSystemRepository.save(system);
                 
                 // RESOLVE ALL PENDING ALERTS
-                resolveAllPendingAlerts(machineOpt.get().getId(), "SYSTEM-DISARM", "System disarmed by user");
+                resolveAllPendingAlerts(system.getId(), "SYSTEM-DISARM", "System disarmed by user");
                 
                 alertLog.setStatus("RESOLVED");
                 alertLog.setAlertType("DISARM");
@@ -96,22 +125,35 @@ public class AlertService {
                 alertLog.setZoneNumber(0);
                 alertLog.setZoneNumbers("00");
                 alertLog.setZoneNames("No Zone");
-                alertLog.setAlarmSystem(machineOpt.get());
+                alertLog.setAlarmSystem(system);
+                alertLog.setResolutionDescription("System disarmed via SMS command");
                 return alertLogRepository.save(alertLog);
             }
         }
 
         // ============================================================
-        // 3. ARM
+        // 3. ARM - Send SMS to panel
         // ============================================================
         if (cleanMessage != null && (cleanMessage.trim().equalsIgnoreCase("ARM") || 
             cleanMessage.toUpperCase().contains("8888#1A"))) {
-            alertLog.setStatus("ARMED");
             if (machineOpt.isPresent()) {
-                machineOpt.get().setSirenStatus("OFF");
-                alarmSystemRepository.save(machineOpt.get());
-                alertLog.setAlarmSystem(machineOpt.get());
+                AlarmSystem system = machineOpt.get();
+                
+                // Send SMS to panel to arm
+                boolean smsSent = smsService.sendArmCommand(
+                    system.getPanelSimNumber(),
+                    system.getPanelPassword()
+                );
+                
+                if (!smsSent) {
+                    alertLog.setResolutionDescription("Arm SMS to panel failed");
+                }
+                
+                system.setSirenStatus("OFF");
+                alarmSystemRepository.save(system);
+                alertLog.setAlarmSystem(system);
             }
+            alertLog.setStatus("ARMED");
         }
         // ============================================================
         // 4. CALL
@@ -130,10 +172,11 @@ public class AlertService {
                   cleanMessage.toLowerCase().contains("alarm"))) {
             alertLog.setStatus("PENDING");
             if (machineOpt.isPresent()) {
-                // SIREN ON
-                machineOpt.get().setSirenStatus("ON");
-                alarmSystemRepository.save(machineOpt.get());
-                alertLog.setAlarmSystem(machineOpt.get());
+                AlarmSystem system = machineOpt.get();
+                // SIREN ON (panel will handle this automatically)
+                system.setSirenStatus("ON");
+                alarmSystemRepository.save(system);
+                alertLog.setAlarmSystem(system);
             }
         }
         // ============================================================
@@ -188,11 +231,17 @@ public class AlertService {
         
         LocalDateTime now = LocalDateTime.now();
         
-        // Update system siren status to OFF
         Optional<AlarmSystem> systemOpt = alarmSystemRepository.findById(systemId);
         if (systemOpt.isPresent()) {
-            systemOpt.get().setSirenStatus("OFF");
-            alarmSystemRepository.save(systemOpt.get());
+            AlarmSystem system = systemOpt.get();
+            system.setSirenStatus("OFF");
+            alarmSystemRepository.save(system);
+            
+            // Send SMS to panel to ensure siren is off
+            smsService.sendSirenStopCommand(
+                system.getPanelSimNumber(),
+                system.getPanelPassword()
+            );
         }
         
         for (AlertLog alert : pendingAlerts) {
@@ -230,12 +279,17 @@ public class AlertService {
         // ===== UPDATE SIREN STATUS =====
         if (alert.getAlarmSystem() != null) {
             AlarmSystem system = alert.getAlarmSystem();
-            // Check if there are any other pending alerts for this system
             long pendingCount = alertLogRepository.countByAlarmSystemIdAndStatus(system.getId(), "PENDING");
-            // If this is the last pending alert, turn siren OFF
+            
             if (pendingCount <= 1) {
                 system.setSirenStatus("OFF");
                 alarmSystemRepository.save(system);
+                
+                // Send SMS to panel to stop siren
+                smsService.sendSirenStopCommand(
+                    system.getPanelSimNumber(),
+                    system.getPanelPassword()
+                );
             }
         }
         
@@ -510,6 +564,13 @@ public class AlertService {
             throw new IllegalArgumentException("System not found: " + systemCode);
         }
         AlarmSystem system = machineOpt.get();
+        
+        // Send SMS to panel
+        boolean smsSent = smsService.sendDisarmCommand(
+            system.getPanelSimNumber(),
+            system.getPanelPassword()
+        );
+        
         system.setSirenStatus("OFF");
         alarmSystemRepository.save(system);
 
@@ -520,17 +581,17 @@ public class AlertService {
         disarmLog.setAlarmSystem(system);
         disarmLog.setStatus("RESOLVED");
         disarmLog.setAlertType("DISARM");
-        disarmLog.setRawMessage("System disarmed via API/Dashboard");
+        disarmLog.setRawMessage("System disarmed via API/Dashboard" + (smsSent ? "" : " (SMS failed)"));
         disarmLog.setReceivedAt(LocalDateTime.now());
         disarmLog.setResolvedAt(LocalDateTime.now());
         disarmLog.setResolvedBy(triggeredBy != null ? triggeredBy : "SYSTEM");
-        disarmLog.setResolutionDescription("System disarmed");
+        disarmLog.setResolutionDescription("System disarmed" + (smsSent ? " via SMS" : " (SMS to panel failed)"));
         disarmLog.setZoneNumber(0);
         disarmLog.setZoneNumbers("00");
         disarmLog.setZoneNames("No Zone");
         alertLogRepository.save(disarmLog);
 
-        return new DisarmResult(resolved.size());
+        return new DisarmResult(resolved.size(), smsSent);
     }
 
     // ============================================================
@@ -543,10 +604,16 @@ public class AlertService {
             throw new IllegalArgumentException("System not found: " + systemCode);
         }
         AlarmSystem system = machineOpt.get();
+        
+        // Send SMS to panel
+        boolean smsSent = smsService.sendSirenStopCommand(
+            system.getPanelSimNumber(),
+            system.getPanelPassword()
+        );
+        
         system.setSirenStatus("OFF");
         alarmSystemRepository.save(system);
 
-        // Get count of pending alerts for this system
         long pendingCount = alertLogRepository.countByAlarmSystemIdAndStatus(system.getId(), "PENDING");
 
         // Create SIREN_STOP log
@@ -554,34 +621,51 @@ public class AlertService {
         stopLog.setAlarmSystem(system);
         stopLog.setStatus("PENDING");
         stopLog.setAlertType("SIREN_STOP");
-        stopLog.setRawMessage("Siren stopped via API/Dashboard");
+        stopLog.setRawMessage("Siren stopped via API/Dashboard" + (smsSent ? "" : " (SMS failed)"));
         stopLog.setReceivedAt(LocalDateTime.now());
         stopLog.setZoneNumber(0);
         stopLog.setZoneNumbers("00");
         stopLog.setZoneNames("No Zone");
-        stopLog.setResolutionDescription("Siren stopped by " + (triggeredBy != null ? triggeredBy : "user") + ". Alert still pending.");
+        stopLog.setResolutionDescription("Siren stopped by " + (triggeredBy != null ? triggeredBy : "user") + 
+            (smsSent ? " via SMS" : " (SMS to panel failed)") + ". Alert still pending.");
         alertLogRepository.save(stopLog);
 
-        return new SirenStopResult((int) pendingCount);
+        return new SirenStopResult((int) pendingCount, smsSent);
     }
 
     public static class DisarmResult {
         private final int resolvedCount;
-        public DisarmResult(int resolvedCount) {
+        private final boolean smsSent;
+        
+        public DisarmResult(int resolvedCount, boolean smsSent) {
             this.resolvedCount = resolvedCount;
+            this.smsSent = smsSent;
         }
+        
         public int getResolvedCount() {
             return resolvedCount;
+        }
+        
+        public boolean isSmsSent() {
+            return smsSent;
         }
     }
 
     public static class SirenStopResult {
         private final int pendingCount;
-        public SirenStopResult(int pendingCount) {
+        private final boolean smsSent;
+        
+        public SirenStopResult(int pendingCount, boolean smsSent) {
             this.pendingCount = pendingCount;
+            this.smsSent = smsSent;
         }
+        
         public int getPendingCount() {
             return pendingCount;
+        }
+        
+        public boolean isSmsSent() {
+            return smsSent;
         }
     }
 }

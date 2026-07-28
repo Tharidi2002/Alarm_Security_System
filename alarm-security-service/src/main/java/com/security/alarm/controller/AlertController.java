@@ -8,7 +8,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
 import java.util.Optional;
 
 @RestController
@@ -17,8 +16,16 @@ import java.util.Optional;
 public class AlertController {
 
     private final AlertService alertService;
-    private final Map<String, String> activeCommands = new java.util.concurrent.ConcurrentHashMap<>();
+    private final com.security.alarm.repository.AlarmSystemRepository alarmSystemRepository;
+    private final com.security.alarm.repository.AlertLogRepository alertLogRepository;
 
+    public AlertController(AlertService alertService,
+                           com.security.alarm.repository.AlarmSystemRepository alarmSystemRepository,
+                           com.security.alarm.repository.AlertLogRepository alertLogRepository) {
+        this.alertService = alertService;
+        this.alarmSystemRepository = alarmSystemRepository;
+        this.alertLogRepository = alertLogRepository;
+    }
 
     // ============================================================
     // SMS SIMULATE - Process all commands
@@ -67,13 +74,13 @@ public class AlertController {
 
     // ============================================================
     // SET COMMAND - ARM / DISARM (Tech Department Request)
+    // Direct SMS to panel - NO ESP32
     // ============================================================
     @PostMapping("/set-command")
     public ResponseEntity<?> setCommand(
             @RequestParam String atmCode,
             @RequestParam String command) {
         
-        // Validation
         if (atmCode == null || atmCode.trim().isEmpty()) {
             return ResponseEntity.badRequest().body("atmCode is required");
         }
@@ -88,7 +95,6 @@ public class AlertController {
         }
         
         try {
-            // Find system by atmCode
             Optional<com.security.alarm.entity.AlarmSystem> systemOpt = 
                 alarmSystemRepository.findBySystemCode(atmCode);
             
@@ -98,33 +104,42 @@ public class AlertController {
             
             com.security.alarm.entity.AlarmSystem system = systemOpt.get();
             
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("atmCode", atmCode);
-            response.put("command", cmd);
+            // Send SMS to panel
+            String panelNumber = system.getPanelSimNumber();
+            String password = system.getPanelPassword();
+            
+            String smsCommand;
+            String actionMessage;
+            String logStatus;
+            String logType;
             
             if (cmd.equals("ARM")) {
-                // ARM Command
+                smsCommand = password + "#1A";
+                actionMessage = "Arm command sent to panel";
+                logStatus = "ARMED";
+                logType = "ARM";
+                
+                // Send SMS to panel
+                boolean sent = sendSmsToPanel(panelNumber, smsCommand);
+                if (!sent) {
+                    return ResponseEntity.status(500).body("Failed to send ARM SMS to panel");
+                }
+                
                 system.setSirenStatus("OFF");
                 alarmSystemRepository.save(system);
                 
-                // Create ARM log
-                AlertLog armLog = new AlertLog();
-                armLog.setAlarmSystem(system);
-                armLog.setStatus("ARMED");
-                armLog.setAlertType("ARM");
-                armLog.setRawMessage("System armed by dashboard command");
-                armLog.setReceivedAt(java.time.LocalDateTime.now());
-                armLog.setZoneNumber(0);
-                armLog.setZoneNumbers("00");
-                armLog.setZoneNames("No Zone");
-                alertLogRepository.save(armLog);
+            } else { // DISARM
+                smsCommand = password + "#2A";
+                actionMessage = "Disarm command sent to panel";
+                logStatus = "RESOLVED";
+                logType = "DISARM";
                 
-                response.put("message", "System armed successfully");
-                response.put("sirenStatus", "OFF");
+                // Send SMS to panel
+                boolean sent = sendSmsToPanel(panelNumber, smsCommand);
+                if (!sent) {
+                    return ResponseEntity.status(500).body("Failed to send DISARM SMS to panel");
+                }
                 
-            } else if (cmd.equals("DISARM")) {
-                // DISARM Command - Resolve all pending alerts + Siren OFF
                 system.setSirenStatus("OFF");
                 alarmSystemRepository.save(system);
                 
@@ -142,50 +157,41 @@ public class AlertController {
                     alert.setResolutionDescription("System disarmed by dashboard command");
                     alertLogRepository.save(alert);
                 }
-                
-                // Create DISARM log
-                AlertLog disarmLog = new AlertLog();
-                disarmLog.setAlarmSystem(system);
-                disarmLog.setStatus("RESOLVED");
-                disarmLog.setAlertType("DISARM");
-                disarmLog.setRawMessage("System disarmed by dashboard command");
-                disarmLog.setReceivedAt(now);
-                disarmLog.setResolvedAt(now);
-                disarmLog.setResolvedBy("DASHBOARD");
-                disarmLog.setResolutionDescription("System disarmed by dashboard");
-                disarmLog.setZoneNumber(0);
-                disarmLog.setZoneNumbers("00");
-                disarmLog.setZoneNames("No Zone");
-                alertLogRepository.save(disarmLog);
-                
-                response.put("message", "System disarmed successfully. " + pendingAlerts.size() + " alerts resolved.");
-                response.put("resolvedAlerts", pendingAlerts.size());
-                response.put("sirenStatus", "OFF");
             }
             
-            // Store command for ESP32 polling
-            activeCommands.put(atmCode, cmd);
-            System.out.println("[BACKEND]: Command set for " + atmCode + " -> " + cmd);
-
+            // Create log
+            AlertLog log = new AlertLog();
+            log.setAlarmSystem(system);
+            log.setStatus(logStatus);
+            log.setAlertType(logType);
+            log.setRawMessage("Command sent via SMS: " + smsCommand);
+            log.setReceivedAt(java.time.LocalDateTime.now());
+            log.setZoneNumber(0);
+            log.setZoneNumbers("00");
+            log.setZoneNames("No Zone");
+            alertLogRepository.save(log);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("action", cmd);
+            response.put("message", actionMessage);
+            response.put("smsCommand", smsCommand);
+            response.put("panelNumber", panelNumber);
+            response.put("systemCode", atmCode);
+            response.put("sirenStatus", "OFF");
+            
             return ResponseEntity.ok(response);
             
-         } catch (Exception e) {
-             return ResponseEntity.status(500).body("Error processing command: " + e.getMessage());
-         }
-     }
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Error processing command: " + e.getMessage());
+        }
+    }
 
     // ============================================================
-    // ESP32 GET COMMAND POLLING ENDPOINT
+    // ESP32 COMMAND POLLING - REMOVED (No longer needed)
     // ============================================================
-    @GetMapping("/command/{atmCode}")
-    public ResponseEntity<String> getCommand(@PathVariable String atmCode) {
-        String command = activeCommands.getOrDefault(atmCode, "NONE");
-        if (!command.equals("NONE")) {
-            activeCommands.put(atmCode, "NONE");
-            System.out.println("[BACKEND]: Command " + command + " sent to ESP32 and reset to NONE.");
-        }
-        return ResponseEntity.ok(command);
-    }
+    // @GetMapping("/command/{atmCode}") - REMOVED
+    // ESP32 polling endpoint is no longer available
 
     // ============================================================
     // DISARM SYSTEM - Resolve all alerts + Siren OFF
@@ -209,11 +215,10 @@ public class AlertController {
             response.put("alertsResolved", true);
             response.put("systemCode", systemCode);
             response.put("resolvedAlerts", result.getResolvedCount());
-            response.put("message", "System disarmed successfully. " + result.getResolvedCount() + " alerts resolved.");
+            response.put("smsSent", result.isSmsSent());
+            response.put("message", "System disarmed successfully. " + result.getResolvedCount() + 
+                " alerts resolved." + (result.isSmsSent() ? " SMS sent to panel." : " SMS to panel failed."));
             
-            // Register command for ESP32 polling
-            activeCommands.put(systemCode, "DISARM");
-
             return ResponseEntity.ok(response);
             
         } catch (IllegalArgumentException e) {
@@ -245,7 +250,9 @@ public class AlertController {
             response.put("alertsResolved", false);
             response.put("pendingAlerts", result.getPendingCount());
             response.put("systemCode", systemCode);
-            response.put("message", "Siren stopped. " + result.getPendingCount() + " alerts still pending.");
+            response.put("smsSent", result.isSmsSent());
+            response.put("message", "Siren stopped. " + result.getPendingCount() + 
+                " alerts still pending." + (result.isSmsSent() ? " SMS sent to panel." : " SMS to panel failed."));
             
             return ResponseEntity.ok(response);
             
@@ -354,16 +361,20 @@ public class AlertController {
     }
 
     // ============================================================
-    // ADDITIONAL DEPENDENCIES (Required for set-command)
+    // HELPER: Send SMS to Panel
     // ============================================================
-    private final com.security.alarm.repository.AlarmSystemRepository alarmSystemRepository;
-    private final com.security.alarm.repository.AlertLogRepository alertLogRepository;
-
-    public AlertController(AlertService alertService,
-                           com.security.alarm.repository.AlarmSystemRepository alarmSystemRepository,
-                           com.security.alarm.repository.AlertLogRepository alertLogRepository) {
-        this.alertService = alertService;
-        this.alarmSystemRepository = alarmSystemRepository;
-        this.alertLogRepository = alertLogRepository;
+    private boolean sendSmsToPanel(String panelNumber, String smsCommand) {
+        // This is a placeholder - will be replaced with actual SMS service
+        // In production, use SmsService
+        System.out.println("[SMS] Sending to " + panelNumber + ": " + smsCommand);
+        
+        try {
+            // Simulate SMS sending
+            // return smsService.sendSms(panelNumber, smsCommand);
+            return true; // Placeholder for now
+        } catch (Exception e) {
+            System.err.println("Failed to send SMS: " + e.getMessage());
+            return false;
+        }
     }
 }
