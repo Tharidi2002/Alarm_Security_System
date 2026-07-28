@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Shield, User, Lock, Eye, EyeOff, AlertCircle, CheckCircle, ArrowLeft } from 'lucide-react';
 import PropTypes from 'prop-types';
 
@@ -16,6 +16,29 @@ export default function Register({ onBackToLogin }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [hasAdmin, setHasAdmin] = useState(true);
+  const [checkingAdmin, setCheckingAdmin] = useState(true);
+
+  // ===== CHECK IF ADMIN EXISTS =====
+  useEffect(() => {
+    const checkAdmin = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/check-admin`);
+        if (response.ok) {
+          const data = await response.json();
+          setHasAdmin(data.hasAdmin);
+        } else {
+          setHasAdmin(true);
+        }
+      } catch (error) {
+        console.error('Error checking admin status:', error);
+        setHasAdmin(true);
+      } finally {
+        setCheckingAdmin(false);
+      }
+    };
+    checkAdmin();
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -52,6 +75,12 @@ export default function Register({ onBackToLogin }) {
     }
     if (password !== confirmPassword) {
       setError('Passwords do not match');
+      return;
+    }
+
+    // ===== Extra validation for role =====
+    if (role === 'USER' && !hasAdmin) {
+      setError('First account must be ADMIN. Please select ADMIN role.');
       return;
     }
 
@@ -119,7 +148,7 @@ export default function Register({ onBackToLogin }) {
             Create Account
           </h1>
           <p className="text-sm text-slate-400 mt-1 font-mono text-center">
-            Register as System Administrator
+            {hasAdmin ? 'Admin account already exists. Only USER can be created?' : 'Register as System Administrator'}
           </p>
         </div>
 
@@ -221,8 +250,21 @@ export default function Register({ onBackToLogin }) {
               className="w-full bg-slate-950 border border-slate-800/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all font-mono"
             >
               <option value="ADMIN">🔑 ADMIN - Full Access</option>
-              <option value="USER">👤 USER - Limited Access</option>
+              {/* ===== USER option - DISABLED if no admin exists ===== */}
+              <option value="USER" disabled={!hasAdmin}>
+                👤 USER - Limited Access {!hasAdmin && '(First account must be ADMIN)'}
+              </option>
             </select>
+            {!hasAdmin && (
+              <p className="text-[10px] text-yellow-400 font-mono mt-1">
+                ⚠️ First account must be ADMIN. USER role will be available after admin is created.
+              </p>
+            )}
+            {hasAdmin && (
+              <p className="text-[10px] text-slate-500 font-mono mt-1">
+                ℹ️ Admin account exists. Only register as USER from this form.
+              </p>
+            )}
           </div>
 
           <button

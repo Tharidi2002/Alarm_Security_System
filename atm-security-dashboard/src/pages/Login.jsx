@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Shield, Lock, User, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import PropTypes from 'prop-types';
 
@@ -10,6 +10,30 @@ export default function Login({ onLoginSuccess, onShowRegister }) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [hasAdmin, setHasAdmin] = useState(true);
+  const [checkingAdmin, setCheckingAdmin] = useState(true);
+
+  // ===== CHECK IF ADMIN EXISTS =====
+  useEffect(() => {
+    const checkAdmin = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/check-admin`);
+        if (response.ok) {
+          const data = await response.json();
+          setHasAdmin(data.hasAdmin);
+        } else {
+          // If API fails, assume admin exists (hide register button)
+          setHasAdmin(true);
+        }
+      } catch (error) {
+        console.error('Error checking admin status:', error);
+        setHasAdmin(true);
+      } finally {
+        setCheckingAdmin(false);
+      }
+    };
+    checkAdmin();
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -130,16 +154,32 @@ export default function Login({ onLoginSuccess, onShowRegister }) {
           </button>
         </form>
 
-        <p className="text-center text-xs text-slate-500 mt-4 font-mono">
-          Do not have an account?{' '}
-          <button
-            type="button"
-            onClick={onShowRegister}
-            className="text-red-400 hover:text-red-300 transition-colors font-bold underline-offset-2 hover:underline"
-          >
-            Create Admin Account
-          </button>
-        </p>
+        {/* ===== REGISTER BUTTON - Show only if NO admin exists ===== */}
+        {!checkingAdmin && !hasAdmin && (
+          <p className="text-center text-xs text-slate-500 mt-4 font-mono">
+            No admin account found.{' '}
+            <button
+              type="button"
+              onClick={onShowRegister}
+              className="text-red-400 hover:text-red-300 transition-colors font-bold underline-offset-2 hover:underline"
+            >
+              Create Admin Account
+            </button>
+          </p>
+        )}
+
+        {/* ===== SHOW MESSAGE WHEN ADMIN EXISTS ===== */}
+        {!checkingAdmin && hasAdmin && (
+          <p className="text-center text-xs text-slate-500 mt-4 font-mono">
+            Admin account exists. Please login.
+          </p>
+        )}
+
+        {checkingAdmin && (
+          <p className="text-center text-xs text-slate-500 mt-4 font-mono">
+            Checking system status...
+          </p>
+        )}
       </div>
     </div>
   );

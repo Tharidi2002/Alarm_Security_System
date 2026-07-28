@@ -2,7 +2,6 @@ package com.security.alarm.controller;
 
 import com.security.alarm.entity.User;
 import com.security.alarm.entity.UserSystem;
-// import com.security.alarm.entity.AlarmSystem;
 import com.security.alarm.repository.UserRepository;
 import com.security.alarm.repository.UserSystemRepository;
 import com.security.alarm.repository.AlarmSystemRepository;
@@ -46,6 +45,15 @@ public class AuthController {
             .build();
     }
 
+    // ===== NEW: CHECK IF ADMIN EXISTS =====
+    @GetMapping("/check-admin")
+    public ResponseEntity<Map<String, Boolean>> checkAdmin() {
+        boolean hasAdmin = userRepository.existsByRole("ADMIN");
+        Map<String, Boolean> response = new HashMap<>();
+        response.put("hasAdmin", hasAdmin);
+        return ResponseEntity.ok(response);
+    }
+
     // ========== LOGIN ENDPOINT ==========
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> credentials) {
@@ -63,7 +71,6 @@ public class AuthController {
 
         User user = userOpt.get();
         
-        // BCrypt password matching
         if (!passwordEncoder.matches(password, user.getPassword())) {
             return ResponseEntity.status(401).body("Invalid credentials");
         }
@@ -88,7 +95,7 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
-    // ========== REGISTER ENDPOINT - NEW ==========
+    // ========== REGISTER ENDPOINT - UPDATED ==========
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody Map<String, String> registrationData) {
         String username = registrationData.get("username");
@@ -116,6 +123,19 @@ public class AuthController {
             return ResponseEntity.badRequest().body("Invalid role. Must be ADMIN or USER");
         }
 
+        // ===== CHECK: Admin already exists? =====
+        boolean hasAdmin = userRepository.existsByRole("ADMIN");
+
+        // If trying to register as ADMIN but admin already exists
+        if ("ADMIN".equalsIgnoreCase(role) && hasAdmin) {
+            return ResponseEntity.badRequest().body("Admin account already exists. Please login.");
+        }
+
+        // If trying to register as USER but no admin exists (first user must be admin)
+        if ("USER".equalsIgnoreCase(role) && !hasAdmin) {
+            return ResponseEntity.badRequest().body("First account must be ADMIN. Please register as Admin.");
+        }
+
         // Check if username already exists
         if (userRepository.findByUsername(username).isPresent()) {
             return ResponseEntity.badRequest().body("Username already exists");
@@ -129,7 +149,6 @@ public class AuthController {
 
         User savedUser = userRepository.save(newUser);
 
-        // Return success response (without password)
         Map<String, Object> response = new HashMap<>();
         response.put("id", savedUser.getId());
         response.put("username", savedUser.getUsername());
