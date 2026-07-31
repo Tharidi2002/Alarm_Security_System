@@ -11,6 +11,7 @@ function App() {
   });
 
   const [showRegister, setShowRegister] = useState(false);
+  const [registerUnlocked, setRegisterUnlocked] = useState(false);
 
   const handleLoginSuccess = (userData) => {
     localStorage.setItem('user', JSON.stringify(userData));
@@ -22,18 +23,44 @@ function App() {
     setUser(null);
   };
 
+  const handleShowRegister = () => {
+    setShowRegister(true);
+  };
+
+  const handleRegisterUnlocked = () => {
+    setRegisterUnlocked(true);
+    setShowRegister(true);
+  };
+
+  const handleRegisterClose = () => {
+    setShowRegister(false);
+    setRegisterUnlocked(false);
+  };
+
   // If user is logged in, show Dashboard
   if (user) {
     return <Dashboard user={user} onLogout={handleLogout} />;
   }
 
   // Show Register or Login page
-  return showRegister ? (
-    <Register onBackToLogin={() => setShowRegister(false)} />
-  ) : (
+  if (showRegister) {
+    return (
+      <Register 
+        onBackToLogin={handleRegisterClose}
+        isUnlocked={registerUnlocked}
+        onRegisterSuccess={() => {
+          setShowRegister(false);
+          setRegisterUnlocked(false);
+        }}
+      />
+    );
+  }
+
+  return (
     <Login 
-      onLoginSuccess={handleLoginSuccess} 
-      onShowRegister={() => setShowRegister(true)}
+      onLoginSuccess={handleLoginSuccess}
+      onShowRegister={handleShowRegister}
+      onUnlockRegister={handleRegisterUnlocked}
     />
   );
 }
