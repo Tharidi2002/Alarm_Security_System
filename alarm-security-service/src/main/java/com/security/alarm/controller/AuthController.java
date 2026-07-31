@@ -3,12 +3,12 @@ package com.security.alarm.controller;
 import com.security.alarm.entity.User;
 import com.security.alarm.entity.UserSystem;
 import com.security.alarm.entity.SystemConfig;
-import com.security.alarm.entity.AdminRegistrationLog;
+import com.security.alarm.entity.RegistrationAuditLog;
 import com.security.alarm.repository.UserRepository;
 import com.security.alarm.repository.UserSystemRepository;
 import com.security.alarm.repository.AlarmSystemRepository;
 import com.security.alarm.repository.SystemConfigRepository;
-import com.security.alarm.repository.AdminRegistrationLogRepository;
+import com.security.alarm.repository.RegistrationAuditLogRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
@@ -32,7 +32,7 @@ public class AuthController {
     private final UserSystemRepository userSystemRepository;
     private final AlarmSystemRepository alarmSystemRepository;
     private final SystemConfigRepository systemConfigRepository;
-    private final AdminRegistrationLogRepository adminLogRepository;
+    private final RegistrationAuditLogRepository auditLogRepository;
     private final PasswordEncoder passwordEncoder;
 
     // Rate limiting
@@ -45,13 +45,13 @@ public class AuthController {
                           UserSystemRepository userSystemRepository,
                           AlarmSystemRepository alarmSystemRepository,
                           SystemConfigRepository systemConfigRepository,
-                          AdminRegistrationLogRepository adminLogRepository,
+                          RegistrationAuditLogRepository auditLogRepository,
                           PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.userSystemRepository = userSystemRepository;
         this.alarmSystemRepository = alarmSystemRepository;
         this.systemConfigRepository = systemConfigRepository;
-        this.adminLogRepository = adminLogRepository;
+        this.auditLogRepository = auditLogRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -201,7 +201,7 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
-    // ========== REGISTER ENDPOINT - FIXED ==========
+    // ========== REGISTER ENDPOINT - WITH FULL AUDIT LOG ==========
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody Map<String, String> registrationData, HttpServletRequest request) {
         String username = registrationData.get("username");
@@ -237,8 +237,9 @@ public class AuthController {
         }
 
         boolean hasAdmin = userRepository.existsByRole("ADMIN");
+        RegistrationAuditLog logEntry = new RegistrationAuditLog();
 
-        // ===== ADMIN role validation - FIXED =====
+        // ===== ADMIN role validation =====
         if ("ADMIN".equalsIgnoreCase(role)) {
             if (hasAdmin) {
                 // Check if secret code is provided
@@ -265,28 +266,41 @@ public class AuthController {
                     return ResponseEntity.status(403).body(errorResponse);
                 }
 
-                // Log admin registration
-                AdminRegistrationLog log = new AdminRegistrationLog();
-                log.setAdminUsername(username.trim());
-                log.setRegisteredBy("SECRET_CODE (" + clientIp + ")");
-                log.setRegisteredFromIp(clientIp);
-                log.setNotes("Admin registered using secret code.");
-                adminLogRepository.save(log);
+                // Log - ADMIN via secret code
+                logEntry.setUsername(username.trim());
+                logEntry.setRole("ADMIN");
+                logEntry.setRegisteredBy("SECRET_CODE (" + clientIp + ")");
+                logEntry.setRegisteredFromIp(clientIp);
+                logEntry.setMethod("FORM");
+                logEntry.setNotes("Admin registered using secret code.");
+                auditLogRepository.save(logEntry);
                 
             } else {
                 // First admin - no code required
-                AdminRegistrationLog log = new AdminRegistrationLog();
-                log.setAdminUsername(username.trim());
-                log.setRegisteredBy("FIRST_ADMIN");
-                log.setRegisteredFromIp(clientIp);
-                log.setNotes("First admin account created. System initialized.");
-                adminLogRepository.save(log);
+                logEntry.setUsername(username.trim());
+                logEntry.setRole("ADMIN");
+                logEntry.setRegisteredBy("FIRST_ADMIN");
+                logEntry.setRegisteredFromIp(clientIp);
+                logEntry.setMethod("FORM");
+                logEntry.setNotes("First admin account created. System initialized.");
+                auditLogRepository.save(logEntry);
             }
         }
 
-        // ===== USER role validation - First user must be ADMIN =====
-        if ("USER".equalsIgnoreCase(role) && !hasAdmin) {
-            return ResponseEntity.badRequest().body("First account must be ADMIN. Please register as Admin.");
+        // ===== USER role validation =====
+        if ("USER".equalsIgnoreCase(role)) {
+            if (!hasAdmin) {
+                return ResponseEntity.badRequest().body("First account must be ADMIN. Please register as Admin.");
+            }
+            
+            // Log - USER via register form
+            logEntry.setUsername(username.trim());
+            logEntry.setRole("USER");
+            logEntry.setRegisteredBy("REGISTER_FORM (" + clientIp + ")");
+            logEntry.setRegisteredFromIp(clientIp);
+            logEntry.setMethod("FORM");
+            logEntry.setNotes("User registered via registration form.");
+            auditLogRepository.save(logEntry);
         }
 
         // Create user
@@ -313,11 +327,23 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
-    // ===== GET ADMIN REGISTRATION LOGS =====
-    @GetMapping("/admin-logs")
-    public ResponseEntity<?> getAdminLogs() {
-        List<AdminRegistrationLog> logs = adminLogRepository.findAllByOrderByCreatedAtDesc();
-        return ResponseEntity.ok(logs);
+    // ===== GET REGISTRATION AUDIT LOGS =====
+    @GetMapping("/audit-logs")
+    public ResponseEntity<?> getAuditLogs(@RequestParam(required = false) String role) {
+        List<RegistrationAuditLog> logs;
+        if (role != null && !role.trim().isEmpty()) {
+            logs = auditLogRepository.findByRoleOrderByCreatedAtDesc(role.toUpperCase());
+        } else {
+            logs = auditLogRepository.findAllByOrderByCreatedAtDesc();
+        }
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("logs", logs);
+        response.put("totalAdminRegistrations", auditLogRepository.countAdminRegistrations());
+        response.put("totalUserRegistrations", auditLogRepository.countUserRegistrations());
+        response.put("totalRegistrations", auditLogRepository.count());
+        
+        return ResponseEntity.ok(response);
     }
 
     // ===== HELPER: Get Client IP =====

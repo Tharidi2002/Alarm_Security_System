@@ -3,14 +3,16 @@ package com.security.alarm.controller;
 import com.security.alarm.entity.User;
 import com.security.alarm.entity.UserSystem;
 import com.security.alarm.entity.AlarmSystem;
-import com.security.alarm.entity.AdminRegistrationLog;
+import com.security.alarm.entity.RegistrationAuditLog;
 import com.security.alarm.repository.UserRepository;
 import com.security.alarm.repository.UserSystemRepository;
 import com.security.alarm.repository.AlarmSystemRepository;
-import com.security.alarm.repository.AdminRegistrationLogRepository;
+import com.security.alarm.repository.RegistrationAuditLogRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+import jakarta.servlet.http.HttpServletRequest;
+
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -30,20 +32,20 @@ public class AdminController {
     private final AlarmSystemRepository alarmSystemRepository;
     private final PasswordEncoder passwordEncoder;
     private final AlarmZoneRepository alarmZoneRepository;
-    private final AdminRegistrationLogRepository adminLogRepository;
+    private final RegistrationAuditLogRepository auditLogRepository;
 
     public AdminController(UserRepository userRepository,
                         UserSystemRepository userSystemRepository,
                         AlarmSystemRepository alarmSystemRepository,
                         PasswordEncoder passwordEncoder,
                         AlarmZoneRepository alarmZoneRepository,
-                        AdminRegistrationLogRepository adminLogRepository) {
+                        RegistrationAuditLogRepository auditLogRepository) {
         this.userRepository = userRepository;
         this.userSystemRepository = userSystemRepository;
         this.alarmSystemRepository = alarmSystemRepository;
         this.passwordEncoder = passwordEncoder;
         this.alarmZoneRepository = alarmZoneRepository;
-        this.adminLogRepository = adminLogRepository;
+        this.auditLogRepository = auditLogRepository;
     }
 
     // ========== USER MANAGEMENT ==========
@@ -79,7 +81,7 @@ public class AdminController {
     }
 
     @PostMapping("/users")
-    public ResponseEntity<?> createUser(@RequestBody User newUser) {
+    public ResponseEntity<?> createUser(@RequestBody User newUser, HttpServletRequest request) {
         if (newUser.getUsername() == null || newUser.getPassword() == null || newUser.getRole() == null) {
             return ResponseEntity.badRequest().body("Username, password and role are required");
         }
@@ -89,6 +91,20 @@ public class AdminController {
         
         newUser.setPassword(passwordEncoder.encode(newUser.getPassword()));
         User saved = userRepository.save(newUser);
+        
+        // ===== AUDIT LOG: Admin created user via panel =====
+        String clientIp = getClientIp(request);
+        String adminUsername = getAdminUsername(); // Get from session/security context
+        
+        RegistrationAuditLog log = new RegistrationAuditLog();
+        log.setUsername(newUser.getUsername());
+        log.setRole(newUser.getRole());
+        log.setRegisteredBy("ADMIN:" + adminUsername);
+        log.setRegisteredFromIp(clientIp);
+        log.setMethod("ADMIN_PANEL");
+        log.setNotes("User created by admin: " + adminUsername);
+        auditLogRepository.save(log);
+        
         return ResponseEntity.ok(saved);
     }
 
@@ -166,7 +182,6 @@ public class AdminController {
         }
         
         if ("ADMIN".equalsIgnoreCase(user.getRole())) {
-            // Check if this is the only admin
             long adminCount = userRepository.countAdmins();
             if (adminCount <= 1) {
                 return ResponseEntity.badRequest().body("Cannot delete the last admin account. At least one admin must exist.");
@@ -180,16 +195,6 @@ public class AdminController {
         } catch (Exception e) {
             return ResponseEntity.status(500).body("Failed to delete user: " + e.getMessage());
         }
-    }
-
-    // ========== ADMIN REGISTRATION LOGS ==========
-    @GetMapping("/admin-logs")
-    public ResponseEntity<?> getAdminLogs() {
-        List<AdminRegistrationLog> logs = adminLogRepository.findAllByOrderByCreatedAtDesc();
-        Map<String, Object> response = new HashMap<>();
-        response.put("logs", logs);
-        response.put("totalAdmins", userRepository.countAdmins());
-        return ResponseEntity.ok(response);
     }
 
     // ========== SYSTEM MANAGEMENT ==========
@@ -406,5 +411,21 @@ public class AdminController {
         } catch (Exception e) {
             return ResponseEntity.status(500).body("Failed to delete system: " + e.getMessage());
         }
+    }
+
+    // ===== HELPER: Get Client IP =====
+    private String getClientIp(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getRemoteAddr();
+        }
+        return ip;
+    }
+
+    // ===== HELPER: Get Admin Username (from session/context) =====
+    private String getAdminUsername() {
+        // In a real implementation, get from SecurityContext
+        // For now, return a placeholder
+        return "admin";
     }
 }

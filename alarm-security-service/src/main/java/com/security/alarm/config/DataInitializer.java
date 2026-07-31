@@ -16,14 +16,12 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        // Create default secret code if not exists
         if (systemConfigRepository.findByConfigKey("MASTER_SECRET_CODE").isEmpty()) {
             SystemConfig config = new SystemConfig();
             config.setConfigKey("MASTER_SECRET_CODE");
             config.setConfigValue("ALARM-2024-SECURE-KEY");
             systemConfigRepository.save(config);
             System.out.println("✅ MASTER_SECRET_CODE created: ALARM-2024-SECURE-KEY");
-            System.out.println("⚠️  Please change this code in production!");
         } else {
             System.out.println("✅ MASTER_SECRET_CODE already exists");
         }
