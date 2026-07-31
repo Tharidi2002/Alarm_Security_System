@@ -19,11 +19,10 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [hasAdmin, setHasAdmin] = useState(true);
-  const [hasSuperAdmin, setHasSuperAdmin] = useState(false);
+  const [adminCount, setAdminCount] = useState(0);
   const [unlocked, setUnlocked] = useState(isUnlocked);
   const [checkingAdmin, setCheckingAdmin] = useState(true);
 
-  // ===== CHECK ADMIN STATUS =====
   useEffect(() => {
     const checkAdmin = async () => {
       try {
@@ -31,19 +30,18 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
         if (response.ok) {
           const data = await response.json();
           setHasAdmin(data.hasAdmin);
-          setHasSuperAdmin(data.hasSuperAdmin);
-          // If unlocked prop is true, keep it
+          setAdminCount(data.adminCount || 0);
           if (!isUnlocked) {
             setUnlocked(data.isUnlocked || false);
           }
         } else {
           setHasAdmin(true);
-          setHasSuperAdmin(false);
+          setAdminCount(1);
         }
       } catch (error) {
         console.error('Error checking admin status:', error);
         setHasAdmin(true);
-        setHasSuperAdmin(false);
+        setAdminCount(1);
       } finally {
         setCheckingAdmin(false);
       }
@@ -89,18 +87,11 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
       return;
     }
 
-    // ===== ADMIN role - check if code is required =====
     if (role === 'ADMIN' && hasAdmin) {
       if (!secretCode.trim()) {
         setError('Secret code is required to register as Admin');
         return;
       }
-    }
-
-    // ===== SUPER_ADMIN role - always requires code =====
-    if (role === 'SUPER_ADMIN' && !secretCode.trim()) {
-      setError('Secret code is required to register as SUPER_ADMIN');
-      return;
     }
 
     setLoading(true);
@@ -144,10 +135,8 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
         secretCode: ''
       });
 
-      // Save success message for login page
       localStorage.setItem('registerSuccess', '✅ Registration successful! You can now login.');
 
-      // Wait and navigate to login
       setTimeout(() => {
         if (onRegisterSuccess) onRegisterSuccess();
         if (onBackToLogin) onBackToLogin();
@@ -160,17 +149,13 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
     }
   };
 
-  // ===== Check if form should be locked =====
   const isFormLocked = () => {
     if (checkingAdmin) return false;
-    // If no admin exists, form is open
-    if (!hasAdmin && !hasSuperAdmin) return false;
-    // If admin exists and not unlocked, form is locked
+    if (!hasAdmin) return false;
     if (hasAdmin && !unlocked) return true;
     return false;
   };
 
-  // ===== LOCKED STATE =====
   if (isFormLocked()) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 relative overflow-hidden font-sans">
@@ -196,7 +181,6 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
     );
   }
 
-  // ===== UNLOCKED STATE =====
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 relative overflow-hidden font-sans">
       <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-emerald-500/10 rounded-full blur-[120px]" />
@@ -206,7 +190,6 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
         <button
           onClick={onBackToLogin}
           className="absolute top-4 left-4 p-2 hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-white"
-          aria-label="Back to Login"
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
@@ -221,17 +204,21 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
           <p className="text-sm text-slate-400 mt-1 font-mono text-center">
             {!hasAdmin ? 'Register as System Administrator' : 'Register as User'}
           </p>
-          {/* ===== UNLOCKED BADGE ===== */}
           {unlocked && (
             <div className="mt-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-3 py-1 text-xs text-yellow-400 font-mono flex items-center gap-2">
               <Unlock className="w-3 h-3" />
               🔓 Admin Registration Unlocked
             </div>
           )}
+          {hasAdmin && (
+            <p className="text-xs text-slate-500 font-mono mt-1">
+              Total Admins: {adminCount}
+            </p>
+          )}
         </div>
 
         {error && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 flex items-start gap-2.5 mb-4 text-sm text-red-400 animate-shake">
+          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 flex items-start gap-2.5 mb-4 text-sm text-red-400">
             <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
             <span>{error}</span>
           </div>
@@ -282,7 +269,6 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-3.5 top-3.5 text-slate-500 hover:text-slate-300 transition-colors"
-                tabIndex="-1"
               >
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -308,7 +294,6 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
                 type="button"
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                 className="absolute right-3.5 top-3.5 text-slate-500 hover:text-slate-300 transition-colors"
-                tabIndex="-1"
               >
                 {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -329,7 +314,6 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
               <option value="USER" disabled={!hasAdmin}>
                 👤 USER - Limited Access {!hasAdmin && '(First account must be ADMIN)'}
               </option>
-              <option value="SUPER_ADMIN">⚡ SUPER_ADMIN - System Level</option>
             </select>
             {!hasAdmin && (
               <p className="text-[10px] text-yellow-400 font-mono mt-1">
@@ -343,13 +327,11 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
             )}
           </div>
 
-          {/* ===== SECRET CODE FIELD - Show when needed ===== */}
-          {((formData.role === 'ADMIN' && hasAdmin) || 
-            formData.role === 'SUPER_ADMIN') && (
+          {(formData.role === 'ADMIN' && hasAdmin) && (
             <div className="space-y-1.5">
               <label className="text-xs font-bold tracking-wide uppercase text-slate-400 font-mono flex items-center gap-2">
                 <Key className="w-3.5 h-3.5 text-yellow-400" />
-                Secret Code {(formData.role === 'ADMIN' && hasAdmin) ? '(Required for Admin)' : '(Required)'}
+                Secret Code (Required for Admin)
               </label>
               <div className="relative">
                 <input
@@ -359,7 +341,7 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
                   onChange={handleChange}
                   placeholder="Enter master secret code..."
                   className="w-full bg-slate-950 border border-yellow-500/30 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-yellow-500/50 focus:ring-1 focus:ring-yellow-500/50 transition-all font-mono"
-                  required={formData.role === 'ADMIN' && hasAdmin}
+                  required
                 />
                 <button
                   type="button"
@@ -370,8 +352,7 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
                 </button>
               </div>
               <p className="text-[10px] text-slate-500 font-mono">
-                {formData.role === 'ADMIN' && hasAdmin && 'Contact system administrator to get the registration code.'}
-                {formData.role === 'SUPER_ADMIN' && 'Super Admin registration requires the master secret code.'}
+                Contact system administrator to get the registration code.
               </p>
             </div>
           )}

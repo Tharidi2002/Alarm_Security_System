@@ -3,9 +3,11 @@ package com.security.alarm.controller;
 import com.security.alarm.entity.User;
 import com.security.alarm.entity.UserSystem;
 import com.security.alarm.entity.AlarmSystem;
+import com.security.alarm.entity.AdminRegistrationLog;
 import com.security.alarm.repository.UserRepository;
 import com.security.alarm.repository.UserSystemRepository;
 import com.security.alarm.repository.AlarmSystemRepository;
+import com.security.alarm.repository.AdminRegistrationLogRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
@@ -28,28 +30,35 @@ public class AdminController {
     private final AlarmSystemRepository alarmSystemRepository;
     private final PasswordEncoder passwordEncoder;
     private final AlarmZoneRepository alarmZoneRepository;
+    private final AdminRegistrationLogRepository adminLogRepository;
 
     public AdminController(UserRepository userRepository,
                         UserSystemRepository userSystemRepository,
                         AlarmSystemRepository alarmSystemRepository,
                         PasswordEncoder passwordEncoder,
-                        AlarmZoneRepository alarmZoneRepository) {
+                        AlarmZoneRepository alarmZoneRepository,
+                        AdminRegistrationLogRepository adminLogRepository) {
         this.userRepository = userRepository;
         this.userSystemRepository = userSystemRepository;
         this.alarmSystemRepository = alarmSystemRepository;
         this.passwordEncoder = passwordEncoder;
         this.alarmZoneRepository = alarmZoneRepository;
+        this.adminLogRepository = adminLogRepository;
     }
 
     // ========== USER MANAGEMENT ==========
     @GetMapping("/users")
     public ResponseEntity<List<Map<String, Object>>> getUsers() {
         List<User> users = userRepository.findAll();
+        Optional<User> firstAdmin = userRepository.findFirstByRoleOrderByIdAsc("ADMIN");
+        Long firstAdminId = firstAdmin.map(User::getId).orElse(null);
+        
         List<Map<String, Object>> response = users.stream().map(u -> {
             Map<String, Object> map = new HashMap<>();
             map.put("id", u.getId());
             map.put("username", u.getUsername());
             map.put("role", u.getRole());
+            map.put("isFirstAdmin", u.getId().equals(firstAdminId));
             
             List<UserSystem> mappings = userSystemRepository.findAllByUserId(u.getId());
             List<Map<String, Object>> assigned = mappings.stream()
@@ -140,7 +149,50 @@ public class AdminController {
         return ResponseEntity.ok(response);
     }
 
-    // ========== ALARM SYSTEM MANAGEMENT ==========
+    // ========== DELETE USER WITH PROTECTION ==========
+    @DeleteMapping("/users/{userId}")
+    public ResponseEntity<?> deleteUser(@PathVariable Long userId) {
+        Optional<User> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        User user = userOpt.get();
+        
+        // ===== PROTECT FIRST ADMIN =====
+        Optional<User> firstAdmin = userRepository.findFirstByRoleOrderByIdAsc("ADMIN");
+        if (firstAdmin.isPresent() && firstAdmin.get().getId().equals(userId)) {
+            return ResponseEntity.badRequest().body("Cannot delete the primary admin account. This is the first admin created in the system.");
+        }
+        
+        if ("ADMIN".equalsIgnoreCase(user.getRole())) {
+            // Check if this is the only admin
+            long adminCount = userRepository.countAdmins();
+            if (adminCount <= 1) {
+                return ResponseEntity.badRequest().body("Cannot delete the last admin account. At least one admin must exist.");
+            }
+        }
+        
+        try {
+            userSystemRepository.deleteByUserId(userId);
+            userRepository.deleteById(userId);
+            return ResponseEntity.ok("User deleted successfully");
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Failed to delete user: " + e.getMessage());
+        }
+    }
+
+    // ========== ADMIN REGISTRATION LOGS ==========
+    @GetMapping("/admin-logs")
+    public ResponseEntity<?> getAdminLogs() {
+        List<AdminRegistrationLog> logs = adminLogRepository.findAllByOrderByCreatedAtDesc();
+        Map<String, Object> response = new HashMap<>();
+        response.put("logs", logs);
+        response.put("totalAdmins", userRepository.countAdmins());
+        return ResponseEntity.ok(response);
+    }
+
+    // ========== SYSTEM MANAGEMENT ==========
     private String generateNextSystemCode() {
         Optional<String> latestCodeOpt = alarmSystemRepository.findLatestSystemCode();
         if (latestCodeOpt.isEmpty()) {
@@ -205,7 +257,6 @@ public class AdminController {
         newSystem.setStatus(system.getStatus() != null ? system.getStatus() : "ACTIVE");
         newSystem.setLastStatusChangedAt(LocalDateTime.now());
         
-        // ===== Z8B Panel Settings =====
         newSystem.setPanelSimNumber(system.getSimNumber().trim());
         newSystem.setPanelPassword("8888");
         newSystem.setDisarmCommand("8888#2A");
@@ -291,7 +342,6 @@ public class AdminController {
             existing.setSimNumber(newSim);
         }
 
-        // ===== Z8B Panel Settings =====
         if (updated.getPanelSimNumber() != null && !updated.getPanelSimNumber().trim().isEmpty()) {
             existing.setPanelSimNumber(updated.getPanelSimNumber().trim());
         }
@@ -355,25 +405,6 @@ public class AdminController {
             return ResponseEntity.ok("System deleted successfully");
         } catch (Exception e) {
             return ResponseEntity.status(500).body("Failed to delete system: " + e.getMessage());
-        }
-    }
-
-    @DeleteMapping("/users/{userId}")
-    public ResponseEntity<?> deleteUser(@PathVariable Long userId) {
-        Optional<User> userOpt = userRepository.findById(userId);
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        User user = userOpt.get();
-        if ("ADMIN".equalsIgnoreCase(user.getRole())) {
-            return ResponseEntity.badRequest().body("Cannot delete admin users");
-        }
-        try {
-            userSystemRepository.deleteByUserId(userId);
-            userRepository.deleteById(userId);
-            return ResponseEntity.ok("User deleted successfully");
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body("Failed to delete user: " + e.getMessage());
         }
     }
 }

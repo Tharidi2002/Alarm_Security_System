@@ -3,10 +3,12 @@ package com.security.alarm.controller;
 import com.security.alarm.entity.User;
 import com.security.alarm.entity.UserSystem;
 import com.security.alarm.entity.SystemConfig;
+import com.security.alarm.entity.AdminRegistrationLog;
 import com.security.alarm.repository.UserRepository;
 import com.security.alarm.repository.UserSystemRepository;
 import com.security.alarm.repository.AlarmSystemRepository;
 import com.security.alarm.repository.SystemConfigRepository;
+import com.security.alarm.repository.AdminRegistrationLogRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
@@ -30,6 +32,7 @@ public class AuthController {
     private final UserSystemRepository userSystemRepository;
     private final AlarmSystemRepository alarmSystemRepository;
     private final SystemConfigRepository systemConfigRepository;
+    private final AdminRegistrationLogRepository adminLogRepository;
     private final PasswordEncoder passwordEncoder;
 
     // Rate limiting
@@ -42,11 +45,13 @@ public class AuthController {
                           UserSystemRepository userSystemRepository,
                           AlarmSystemRepository alarmSystemRepository,
                           SystemConfigRepository systemConfigRepository,
+                          AdminRegistrationLogRepository adminLogRepository,
                           PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.userSystemRepository = userSystemRepository;
         this.alarmSystemRepository = alarmSystemRepository;
         this.systemConfigRepository = systemConfigRepository;
+        this.adminLogRepository = adminLogRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -65,16 +70,21 @@ public class AuthController {
     @GetMapping("/check-admin")
     public ResponseEntity<Map<String, Object>> checkAdmin(HttpServletRequest request) {
         boolean hasAdmin = userRepository.existsByRole("ADMIN");
-        boolean hasSuperAdmin = userRepository.existsByRole("SUPER_ADMIN");
+        long adminCount = userRepository.countAdmins();
         
         Map<String, Object> response = new HashMap<>();
         response.put("hasAdmin", hasAdmin);
-        response.put("hasSuperAdmin", hasSuperAdmin);
+        response.put("adminCount", adminCount);
         
-        // Check if unlock session exists
         HttpSession session = request.getSession(false);
         boolean isUnlocked = session != null && session.getAttribute("REGISTER_UNLOCKED") != null;
         response.put("isUnlocked", isUnlocked);
+        
+        Optional<User> firstAdmin = userRepository.findFirstByRoleOrderByIdAsc("ADMIN");
+        firstAdmin.ifPresent(admin -> {
+            response.put("firstAdminId", admin.getId());
+            response.put("firstAdminUsername", admin.getUsername());
+        });
         
         return ResponseEntity.ok(response);
     }
@@ -85,7 +95,6 @@ public class AuthController {
         String providedCode = request.get("secretCode");
         String clientIp = getClientIp(httpRequest);
 
-        // Check if admin exists
         boolean hasAdmin = userRepository.existsByRole("ADMIN");
         if (!hasAdmin) {
             return ResponseEntity.ok(Map.of(
@@ -94,7 +103,6 @@ public class AuthController {
             ));
         }
 
-        // Rate limiting check
         AttemptInfo attemptInfo = attemptTracker.get(clientIp);
         if (attemptInfo != null && attemptInfo.isLockedOut()) {
             long remainingMinutes = attemptInfo.getRemainingLockoutMinutes();
@@ -107,7 +115,6 @@ public class AuthController {
             ));
         }
 
-        // Get stored code from DB
         Optional<SystemConfig> configOpt = systemConfigRepository.findByConfigKey(SECRET_CODE_KEY);
         if (configOpt.isEmpty()) {
             return ResponseEntity.status(500).body(Map.of(
@@ -118,22 +125,19 @@ public class AuthController {
 
         String storedCode = configOpt.get().getConfigValue();
 
-        // Check if codes match
         if (providedCode != null && providedCode.equals(storedCode)) {
-            // Success - clear attempts
             attemptTracker.remove(clientIp);
 
-            // Create unlock session
             HttpSession session = httpRequest.getSession(true);
             session.setAttribute("REGISTER_UNLOCKED", true);
-            session.setMaxInactiveInterval(900); // 15 minutes
+            session.setAttribute("UNLOCKED_BY_IP", clientIp);
+            session.setMaxInactiveInterval(900);
 
             return ResponseEntity.ok(Map.of(
                 "valid", true,
                 "message", "Code verified. Registration unlocked for 15 minutes."
             ));
         } else {
-            // Failed attempt
             AttemptInfo info = attemptTracker.getOrDefault(clientIp, new AttemptInfo());
             info.incrementAttempts();
             attemptTracker.put(clientIp, info);
@@ -197,7 +201,7 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
-    // ========== REGISTER ENDPOINT - UPDATED ==========
+    // ========== REGISTER ENDPOINT - FIXED ==========
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody Map<String, String> registrationData, HttpServletRequest request) {
         String username = registrationData.get("username");
@@ -205,6 +209,7 @@ public class AuthController {
         String confirmPassword = registrationData.get("confirmPassword");
         String role = registrationData.get("role");
         String secretCode = registrationData.get("secretCode");
+        String clientIp = getClientIp(request);
 
         // Basic validation
         if (username == null || username.trim().isEmpty()) {
@@ -222,8 +227,8 @@ public class AuthController {
         if (role == null || role.trim().isEmpty()) {
             return ResponseEntity.badRequest().body("Role is required");
         }
-        if (!role.equals("ADMIN") && !role.equals("USER") && !role.equals("SUPER_ADMIN")) {
-            return ResponseEntity.badRequest().body("Invalid role. Must be ADMIN, USER, or SUPER_ADMIN");
+        if (!role.equals("ADMIN") && !role.equals("USER")) {
+            return ResponseEntity.badRequest().body("Invalid role. Must be ADMIN or USER");
         }
 
         // Check if username already exists
@@ -233,55 +238,55 @@ public class AuthController {
 
         boolean hasAdmin = userRepository.existsByRole("ADMIN");
 
-        // ===== ADMIN role validation =====
-        if ("ADMIN".equalsIgnoreCase(role) && hasAdmin) {
-            // Check if unlock session exists
-            HttpSession session = request.getSession(false);
-            boolean isUnlocked = session != null && session.getAttribute("REGISTER_UNLOCKED") != null;
-
-            if (!isUnlocked) {
-                Map<String, Object> errorResponse = new HashMap<>();
-                errorResponse.put("error", "Admin registration is locked. Please verify secret code first.");
-                errorResponse.put("requiresCode", true);
-                return ResponseEntity.status(403).body(errorResponse);
-            }
-
-            // Also check if secret code is provided
-            if (secretCode == null || secretCode.trim().isEmpty()) {
-                Map<String, Object> errorResponse = new HashMap<>();
-                errorResponse.put("error", "Secret code is required to register admin.");
-                errorResponse.put("requiresCode", true);
-                return ResponseEntity.status(403).body(errorResponse);
-            }
-
-            // Verify code again
-            Optional<SystemConfig> configOpt = systemConfigRepository.findByConfigKey(SECRET_CODE_KEY);
-            if (configOpt.isEmpty() || !secretCode.equals(configOpt.get().getConfigValue())) {
-                // Invalidate session
-                if (session != null) {
-                    session.removeAttribute("REGISTER_UNLOCKED");
+        // ===== ADMIN role validation - FIXED =====
+        if ("ADMIN".equalsIgnoreCase(role)) {
+            if (hasAdmin) {
+                // Check if secret code is provided
+                if (secretCode == null || secretCode.trim().isEmpty()) {
+                    Map<String, Object> errorResponse = new HashMap<>();
+                    errorResponse.put("error", "Secret code is required to register admin.");
+                    errorResponse.put("requiresCode", true);
+                    return ResponseEntity.status(403).body(errorResponse);
                 }
-                Map<String, Object> errorResponse = new HashMap<>();
-                errorResponse.put("error", "Invalid secret code.");
-                errorResponse.put("requiresCode", true);
-                return ResponseEntity.status(403).body(errorResponse);
+
+                // Verify code from database
+                Optional<SystemConfig> configOpt = systemConfigRepository.findByConfigKey(SECRET_CODE_KEY);
+                if (configOpt.isEmpty()) {
+                    return ResponseEntity.status(500).body("System configuration error. Contact administrator.");
+                }
+
+                String storedCode = configOpt.get().getConfigValue();
+                
+                // Compare codes
+                if (!secretCode.equals(storedCode)) {
+                    Map<String, Object> errorResponse = new HashMap<>();
+                    errorResponse.put("error", "Invalid secret code.");
+                    errorResponse.put("requiresCode", true);
+                    return ResponseEntity.status(403).body(errorResponse);
+                }
+
+                // Log admin registration
+                AdminRegistrationLog log = new AdminRegistrationLog();
+                log.setAdminUsername(username.trim());
+                log.setRegisteredBy("SECRET_CODE (" + clientIp + ")");
+                log.setRegisteredFromIp(clientIp);
+                log.setNotes("Admin registered using secret code.");
+                adminLogRepository.save(log);
+                
+            } else {
+                // First admin - no code required
+                AdminRegistrationLog log = new AdminRegistrationLog();
+                log.setAdminUsername(username.trim());
+                log.setRegisteredBy("FIRST_ADMIN");
+                log.setRegisteredFromIp(clientIp);
+                log.setNotes("First admin account created. System initialized.");
+                adminLogRepository.save(log);
             }
         }
 
         // ===== USER role validation - First user must be ADMIN =====
         if ("USER".equalsIgnoreCase(role) && !hasAdmin) {
             return ResponseEntity.badRequest().body("First account must be ADMIN. Please register as Admin.");
-        }
-
-        // ===== SUPER_ADMIN role validation =====
-        if ("SUPER_ADMIN".equalsIgnoreCase(role)) {
-            if (secretCode == null || secretCode.trim().isEmpty()) {
-                return ResponseEntity.status(403).body("Secret code is required to create SUPER_ADMIN.");
-            }
-            Optional<SystemConfig> configOpt = systemConfigRepository.findByConfigKey(SECRET_CODE_KEY);
-            if (configOpt.isEmpty() || !secretCode.equals(configOpt.get().getConfigValue())) {
-                return ResponseEntity.status(403).body("Invalid secret code.");
-            }
         }
 
         // Create user
@@ -292,10 +297,11 @@ public class AuthController {
 
         User savedUser = userRepository.save(newUser);
 
-        // Invalidate unlock session after successful registration
+        // Clear unlock session if exists
         HttpSession session = request.getSession(false);
         if (session != null) {
             session.removeAttribute("REGISTER_UNLOCKED");
+            session.removeAttribute("UNLOCKED_BY_IP");
         }
 
         Map<String, Object> response = new HashMap<>();
@@ -305,6 +311,13 @@ public class AuthController {
         response.put("message", "User registered successfully");
 
         return ResponseEntity.ok(response);
+    }
+
+    // ===== GET ADMIN REGISTRATION LOGS =====
+    @GetMapping("/admin-logs")
+    public ResponseEntity<?> getAdminLogs() {
+        List<AdminRegistrationLog> logs = adminLogRepository.findAllByOrderByCreatedAtDesc();
+        return ResponseEntity.ok(logs);
     }
 
     // ===== HELPER: Get Client IP =====

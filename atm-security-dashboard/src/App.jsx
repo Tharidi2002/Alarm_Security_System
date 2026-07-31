@@ -37,12 +37,10 @@ function App() {
     setRegisterUnlocked(false);
   };
 
-  // If user is logged in, show Dashboard
   if (user) {
     return <Dashboard user={user} onLogout={handleLogout} />;
   }
 
-  // Show Register or Login page
   if (showRegister) {
     return (
       <Register 

@@ -12,12 +12,11 @@ export default function Login({ onLoginSuccess, onShowRegister, onUnlockRegister
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [hasAdmin, setHasAdmin] = useState(true);
-  const [hasSuperAdmin, setHasSuperAdmin] = useState(false);
+  const [adminCount, setAdminCount] = useState(0);
   const [checkingAdmin, setCheckingAdmin] = useState(true);
   const [showSecretModal, setShowSecretModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
-  // ===== CHECK ADMIN STATUS =====
   useEffect(() => {
     const checkAdmin = async () => {
       try {
@@ -25,15 +24,15 @@ export default function Login({ onLoginSuccess, onShowRegister, onUnlockRegister
         if (response.ok) {
           const data = await response.json();
           setHasAdmin(data.hasAdmin);
-          setHasSuperAdmin(data.hasSuperAdmin);
+          setAdminCount(data.adminCount || 0);
         } else {
           setHasAdmin(true);
-          setHasSuperAdmin(false);
+          setAdminCount(1);
         }
       } catch (error) {
         console.error('Error checking admin status:', error);
         setHasAdmin(true);
-        setHasSuperAdmin(false);
+        setAdminCount(1);
       } finally {
         setCheckingAdmin(false);
       }
@@ -41,7 +40,6 @@ export default function Login({ onLoginSuccess, onShowRegister, onUnlockRegister
     checkAdmin();
   }, []);
 
-  // ===== Check for success message from register =====
   useEffect(() => {
     const msg = localStorage.getItem('registerSuccess');
     if (msg) {
@@ -86,14 +84,12 @@ export default function Login({ onLoginSuccess, onShowRegister, onUnlockRegister
   };
 
   const handleSecretVerified = () => {
-    // Code verified - unlock register and navigate
     if (onUnlockRegister) {
       onUnlockRegister();
     }
   };
 
-  // ===== Show Register button if no admin exists =====
-  const showRegisterButton = !checkingAdmin && !hasAdmin && !hasSuperAdmin;
+  const showRegisterButton = !checkingAdmin && !hasAdmin;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 relative overflow-hidden font-sans">
@@ -102,8 +98,7 @@ export default function Login({ onLoginSuccess, onShowRegister, onUnlockRegister
 
       <div className="w-full max-w-md bg-slate-900/80 backdrop-blur-xl border border-slate-800/80 rounded-2xl shadow-2xl p-8 relative z-10 animate-fade-in">
         
-        {/* ===== SECRET CODE KEY ICON - Bottom Right ===== */}
-        {!checkingAdmin && (hasAdmin || hasSuperAdmin) && (
+        {!checkingAdmin && hasAdmin && (
           <button
             onClick={() => setShowSecretModal(true)}
             className="absolute bottom-4 right-4 p-2 text-slate-600 hover:text-yellow-400 hover:bg-yellow-500/10 rounded-lg transition-all duration-300 opacity-30 hover:opacity-100 border border-transparent hover:border-yellow-500/30"
@@ -123,9 +118,13 @@ export default function Login({ onLoginSuccess, onShowRegister, onUnlockRegister
           <p className="text-sm text-slate-400 mt-1 font-mono text-center">
             Centralized Live Monitoring Portal
           </p>
+          {!checkingAdmin && hasAdmin && (
+            <p className="text-xs text-slate-500 font-mono mt-1">
+              Admins: {adminCount}
+            </p>
+          )}
         </div>
 
-        {/* ===== SUCCESS MESSAGE ===== */}
         {successMessage && (
           <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 flex items-start gap-2.5 mb-4 text-sm text-emerald-400 animate-in">
             <span>✅</span>
@@ -177,13 +176,8 @@ export default function Login({ onLoginSuccess, onShowRegister, onUnlockRegister
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-3.5 top-3.5 text-slate-500 hover:text-slate-300 transition-colors"
                 tabIndex="-1"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
-                {showPassword ? (
-                  <EyeOff className="w-4 h-4" />
-                ) : (
-                  <Eye className="w-4 h-4" />
-                )}
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
           </div>
@@ -201,7 +195,6 @@ export default function Login({ onLoginSuccess, onShowRegister, onUnlockRegister
           </button>
         </form>
 
-        {/* ===== REGISTER BUTTON - No admin exists ===== */}
         {showRegisterButton && (
           <p className="text-center text-xs text-slate-500 mt-4 font-mono">
             No admin account found.{' '}
@@ -215,7 +208,6 @@ export default function Login({ onLoginSuccess, onShowRegister, onUnlockRegister
           </p>
         )}
 
-        {/* ===== SHOW MESSAGE WHEN ADMIN EXISTS ===== */}
         {!checkingAdmin && hasAdmin && !successMessage && (
           <p className="text-center text-xs text-slate-500 mt-4 font-mono">
             Admin account exists. Please login.
@@ -229,7 +221,6 @@ export default function Login({ onLoginSuccess, onShowRegister, onUnlockRegister
         )}
       </div>
 
-      {/* ===== SECRET CODE MODAL ===== */}
       <SecretCodeModal
         isOpen={showSecretModal}
         onClose={() => setShowSecretModal(false)}

@@ -39,7 +39,6 @@ export default function SecretCodeModal({ isOpen, onClose, onVerified }) {
         setSuccess('✅ Code verified! Registration unlocked.');
         setRemainingAttempts(5);
         
-        // Wait and then navigate to register
         setTimeout(() => {
           if (onVerified) onVerified();
           onClose();
@@ -53,9 +52,7 @@ export default function SecretCodeModal({ isOpen, onClose, onVerified }) {
           setLockedOut(true);
           setRemainingMinutes(data.remainingMinutes || 30);
         }
-        // Clear code on wrong attempt
         setCode('');
-        // Focus input
         setTimeout(() => {
           document.querySelector('input[type="password"]')?.focus();
         }, 100);
@@ -100,7 +97,6 @@ export default function SecretCodeModal({ isOpen, onClose, onVerified }) {
         className="bg-slate-900 border border-yellow-500/30 rounded-2xl max-w-md w-full shadow-2xl shadow-yellow-500/10"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex justify-between items-center p-5 border-b border-slate-800">
           <div className="flex items-center gap-3">
             <div className="bg-yellow-500/10 p-2 rounded-lg border border-yellow-500/20">
@@ -119,7 +115,6 @@ export default function SecretCodeModal({ isOpen, onClose, onVerified }) {
           </button>
         </div>
 
-        {/* Body */}
         <div className="p-5 space-y-4">
           <div className="bg-slate-950 border border-slate-800 rounded-xl p-3">
             <p className="text-sm text-slate-300">
@@ -130,7 +125,6 @@ export default function SecretCodeModal({ isOpen, onClose, onVerified }) {
             </p>
           </div>
 
-          {/* Code Input */}
           <div className="space-y-2">
             <label className="text-xs font-bold tracking-wide uppercase text-slate-400 font-mono flex items-center gap-2">
               <Lock className="w-3.5 h-3.5" />
@@ -156,16 +150,11 @@ export default function SecretCodeModal({ isOpen, onClose, onVerified }) {
                 onClick={() => setShowCode(!showCode)}
                 className="absolute right-3.5 top-3.5 text-slate-500 hover:text-slate-300 transition-colors"
               >
-                {showCode ? (
-                  <Lock className="w-4 h-4" />
-                ) : (
-                  <Key className="w-4 h-4" />
-                )}
+                {showCode ? <Lock className="w-4 h-4" /> : <Key className="w-4 h-4" />}
               </button>
             </div>
           </div>
 
-          {/* Error/Success Messages */}
           {error && (
             <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 flex items-start gap-2.5 text-sm text-red-400">
               <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
@@ -180,7 +169,6 @@ export default function SecretCodeModal({ isOpen, onClose, onVerified }) {
             </div>
           )}
 
-          {/* Remaining Attempts Warning */}
           {getRemainingText() && !error && !success && (
             <div className={`rounded-xl p-3 flex items-start gap-2.5 text-sm ${
               lockedOut || remainingAttempts === 0
@@ -196,7 +184,6 @@ export default function SecretCodeModal({ isOpen, onClose, onVerified }) {
             </div>
           )}
 
-          {/* Actions */}
           <div className="flex gap-3 pt-2 border-t border-slate-800">
             <button
               onClick={handleClose}
@@ -220,7 +207,6 @@ export default function SecretCodeModal({ isOpen, onClose, onVerified }) {
             </button>
           </div>
 
-          {/* Hint */}
           <div className="text-center text-[9px] text-slate-600 font-mono">
             ⚠️ This is a secure feature. Unauthorized access is logged.
           </div>

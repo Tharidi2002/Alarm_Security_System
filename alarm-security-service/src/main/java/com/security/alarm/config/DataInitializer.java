@@ -20,7 +20,6 @@ public class DataInitializer implements CommandLineRunner {
         if (systemConfigRepository.findByConfigKey("MASTER_SECRET_CODE").isEmpty()) {
             SystemConfig config = new SystemConfig();
             config.setConfigKey("MASTER_SECRET_CODE");
-            // Default secret code - Change this in production!
             config.setConfigValue("ALARM-2024-SECURE-KEY");
             systemConfigRepository.save(config);
             System.out.println("✅ MASTER_SECRET_CODE created: ALARM-2024-SECURE-KEY");
