@@ -55,8 +55,17 @@ export const assignSystems = async (userId, systemIds) => {
   return true;
 };
 
-export const createSystem = async (systemData) => {
-  const response = await fetch(`${API_BASE_URL}/admin/systems`, {
+export const fetchCompanies = async () => {
+  const response = await fetch(`${API_BASE_URL}/admin/companies`);
+  if (!response.ok) throw new Error('Failed to fetch companies');
+  return await response.json();
+};
+
+export const createSystem = async (systemData, companyId) => {
+  const url = companyId 
+    ? `${API_BASE_URL}/admin/systems?companyId=${encodeURIComponent(companyId)}` 
+    : `${API_BASE_URL}/admin/systems`;
+  const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(systemData),
@@ -68,8 +77,11 @@ export const createSystem = async (systemData) => {
   return await response.json();
 };
 
-export const updateSystem = async (systemId, systemData) => {
-  const response = await fetch(`${API_BASE_URL}/admin/systems/${systemId}`, {
+export const updateSystem = async (systemId, systemData, companyId) => {
+  const url = companyId !== undefined && companyId !== null
+    ? `${API_BASE_URL}/admin/systems/${systemId}?companyId=${encodeURIComponent(companyId)}`
+    : `${API_BASE_URL}/admin/systems/${systemId}`;
+  const response = await fetch(url, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(systemData),

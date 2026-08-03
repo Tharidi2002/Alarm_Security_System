@@ -195,8 +195,12 @@ public class AdminController {
         newSystem.setLastStatusChangedAt(LocalDateTime.now());
         
         // ===== Set company =====
-        if (companyId != null && companyId > 0) {
-            companyRepository.findById(companyId).ifPresent(newSystem::setCompany);
+        Long targetCompanyId = companyId;
+        if (targetCompanyId == null && system.getCompany() != null && system.getCompany().getId() != null) {
+            targetCompanyId = system.getCompany().getId();
+        }
+        if (targetCompanyId != null && targetCompanyId > 0) {
+            companyRepository.findById(targetCompanyId).ifPresent(newSystem::setCompany);
         }
         
         newSystem.setPanelSimNumber(system.getSimNumber().trim());
@@ -209,6 +213,78 @@ public class AdminController {
         AlarmSystem saved = alarmSystemRepository.save(newSystem);
         createDefaultZones(saved);
         return ResponseEntity.ok(saved);
+    }
+
+    @PutMapping("/systems/{id}")
+    public ResponseEntity<?> updateSystem(@PathVariable Long id, @RequestBody AlarmSystem systemDetails, @RequestParam(required = false) Long companyId) {
+        Optional<AlarmSystem> opt = alarmSystemRepository.findById(id);
+        if (opt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        AlarmSystem system = opt.get();
+        if (systemDetails.getLocation() != null && !systemDetails.getLocation().trim().isEmpty()) {
+            system.setLocation(systemDetails.getLocation().trim());
+        }
+        if (systemDetails.getDescription() != null) {
+            system.setDescription(systemDetails.getDescription().trim());
+        }
+        if (systemDetails.getSimNumber() != null && !systemDetails.getSimNumber().trim().isEmpty()) {
+            system.setSimNumber(systemDetails.getSimNumber().trim());
+            system.setPanelSimNumber(systemDetails.getSimNumber().trim());
+        }
+        if (systemDetails.getPanelSimNumber() != null && !systemDetails.getPanelSimNumber().trim().isEmpty()) {
+            system.setPanelSimNumber(systemDetails.getPanelSimNumber().trim());
+        }
+        if (systemDetails.getDisarmCommand() != null) {
+            system.setDisarmCommand(systemDetails.getDisarmCommand());
+        }
+        if (systemDetails.getArmCommand() != null) {
+            system.setArmCommand(systemDetails.getArmCommand());
+        }
+        if (systemDetails.getStatus() != null) {
+            system.setStatus(systemDetails.getStatus());
+        }
+
+        Long targetCompanyId = companyId;
+        if (targetCompanyId == null && systemDetails.getCompany() != null) {
+            targetCompanyId = systemDetails.getCompany().getId();
+        }
+        if (targetCompanyId != null) {
+            if (targetCompanyId > 0) {
+                companyRepository.findById(targetCompanyId).ifPresent(system::setCompany);
+            } else {
+                system.setCompany(null);
+            }
+        }
+
+        AlarmSystem saved = alarmSystemRepository.save(system);
+        return ResponseEntity.ok(saved);
+    }
+
+    @PatchMapping("/systems/{id}/status")
+    public ResponseEntity<?> toggleSystemStatus(@PathVariable Long id, @RequestBody Map<String, String> body) {
+        Optional<AlarmSystem> opt = alarmSystemRepository.findById(id);
+        if (opt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        AlarmSystem system = opt.get();
+        String newStatus = body.get("status");
+        if (newStatus != null) {
+            system.setStatus(newStatus);
+            system.setLastStatusChangedAt(LocalDateTime.now());
+            alarmSystemRepository.save(system);
+        }
+        return ResponseEntity.ok(system);
+    }
+
+    @DeleteMapping("/systems/{id}")
+    public ResponseEntity<?> deleteSystem(@PathVariable Long id) {
+        if (!alarmSystemRepository.existsById(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        alarmSystemRepository.deleteById(id);
+        return ResponseEntity.ok("System deleted successfully");
     }
 
     private void createDefaultZones(AlarmSystem system) {

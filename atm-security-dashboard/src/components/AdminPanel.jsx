@@ -11,6 +11,7 @@ import {
   fetchUsers, 
   createUser, 
   fetchSystems, 
+  fetchCompanies,
   assignSystems,
   createSystem,
   updateSystem,
@@ -29,6 +30,7 @@ export default function AdminPanel({ isOpen, onClose }) {
   const [activeTab, setActiveTab] = useState('USERS');
   const [users, setUsers] = useState([]);
   const [systems, setSystems] = useState([]);
+  const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -50,6 +52,7 @@ export default function AdminPanel({ isOpen, onClose }) {
   const [panelSimNumber, setPanelSimNumber] = useState('');
   const [disarmCommand, setDisarmCommand] = useState('8888#2A');
   const [armCommand, setArmCommand] = useState('8888#1A');
+  const [selectedCompanyId, setSelectedCompanyId] = useState('');
   const [editingSystem, setEditingSystem] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedCode, setGeneratedCode] = useState('');
@@ -122,12 +125,14 @@ export default function AdminPanel({ isOpen, onClose }) {
     setLoading(true);
     setError('');
     try {
-      const [usersData, systemsData] = await Promise.all([
+      const [usersData, systemsData, companiesData] = await Promise.all([
         fetchUsers(),
-        fetchSystems()
+        fetchSystems(),
+        fetchCompanies().catch(() => [])
       ]);
       setUsers(usersData);
       setSystems(systemsData);
+      setCompanies(companiesData || []);
       if (activeTab === 'SYSTEMS') {
         await fetchLatestSystemCode();
       }
@@ -281,7 +286,7 @@ export default function AdminPanel({ isOpen, onClose }) {
         status: 'ACTIVE'
       };
 
-      const result = await createSystem(systemData);
+      const result = await createSystem(systemData, selectedCompanyId || null);
       setSuccess(`✅ System created: ${result.systemCode}`);
       setLocation('');
       setDescription('');
@@ -289,6 +294,7 @@ export default function AdminPanel({ isOpen, onClose }) {
       setPanelSimNumber('');
       setDisarmCommand('8888#2A');
       setArmCommand('8888#1A');
+      setSelectedCompanyId('');
       await loadData();
       await fetchLatestSystemCode();
     } catch (errorMsg) {
@@ -306,6 +312,7 @@ export default function AdminPanel({ isOpen, onClose }) {
     setPanelSimNumber(system.panelSimNumber || system.simNumber);
     setDisarmCommand(system.disarmCommand || '8888#2A');
     setArmCommand(system.armCommand || '8888#1A');
+    setSelectedCompanyId(system.company ? String(system.company.id) : '');
   };
 
   const handleUpdateSystem = async (e) => {
@@ -326,7 +333,7 @@ export default function AdminPanel({ isOpen, onClose }) {
         disarmCommand: disarmCommand.trim() || '8888#2A',
         armCommand: armCommand.trim() || '8888#1A',
         status: editingSystem.status
-      });
+      }, selectedCompanyId !== '' ? selectedCompanyId : 0);
       setSuccess(`✅ System ${editingSystem.systemCode} updated successfully`);
       setEditingSystem(null);
       setLocation('');
@@ -335,6 +342,7 @@ export default function AdminPanel({ isOpen, onClose }) {
       setPanelSimNumber('');
       setDisarmCommand('8888#2A');
       setArmCommand('8888#1A');
+      setSelectedCompanyId('');
       loadData();
       await fetchLatestSystemCode();
     } catch (errorMsg) {
@@ -350,6 +358,7 @@ export default function AdminPanel({ isOpen, onClose }) {
     setPanelSimNumber('');
     setDisarmCommand('8888#2A');
     setArmCommand('8888#1A');
+    setSelectedCompanyId('');
     fetchLatestSystemCode();
   };
 
@@ -779,6 +788,25 @@ export default function AdminPanel({ isOpen, onClose }) {
                       required
                     />
                   </div>
+                  {/* Company Selection */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono flex items-center gap-2">
+                      <Building className="w-3.5 h-3.5 text-blue-400" />
+                      Company (Optional)
+                    </label>
+                    <select
+                      value={selectedCompanyId}
+                      onChange={(e) => setSelectedCompanyId(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-red-500/50"
+                    >
+                      <option value="">-- No Company Assigned --</option>
+                      {companies.map((comp) => (
+                        <option key={comp.id} value={comp.id}>
+                          {comp.companyCode} - {comp.companyName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
                   {/* Description */}
                   <div className="space-y-1.5">
@@ -823,34 +851,32 @@ export default function AdminPanel({ isOpen, onClose }) {
                     <p className="text-[8px] text-slate-500">Default: 8888#2A (Disarm) | 8888#1A (Arm)</p>
                   </div>
 
-                  {/* Submit Buttons */}
-                  <div className="flex gap-2">
+                  {/* Action Buttons */}
+                  <div className="flex gap-2 pt-2">
+                    {editingSystem && (
+                      <button
+                        type="button"
+                        onClick={handleCancelEditSystem}
+                        className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2 rounded-lg text-xs font-mono tracking-wider uppercase transition-all"
+                      >
+                        Cancel
+                      </button>
+                    )}
                     <button
                       type="submit"
                       disabled={isGenerating}
                       className="flex-1 bg-slate-800 hover:bg-red-650 hover:text-white border border-slate-700 hover:border-red-500 font-bold py-2 rounded-lg text-xs font-mono tracking-wider uppercase transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
                     >
-                      {isGenerating ? (
+                      {editingSystem ? (
                         <>
-                          <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                          Generating...
+                          <Save className="w-3.5 h-3.5" /> Update System
                         </>
                       ) : (
                         <>
-                          <Save className="w-3.5 h-3.5" /> 
-                          {editingSystem ? 'Save Changes' : 'Register System'}
+                          <Plus className="w-3.5 h-3.5" /> Register System
                         </>
                       )}
                     </button>
-                    {editingSystem && (
-                      <button
-                        type="button"
-                        onClick={handleCancelEditSystem}
-                        className="px-4 py-2 border border-slate-700 hover:bg-slate-800 rounded-lg text-xs font-mono text-slate-400 hover:text-white transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    )}
                   </div>
                 </form>
               </div>
@@ -881,7 +907,7 @@ export default function AdminPanel({ isOpen, onClose }) {
                       return (
                         <div key={sys.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-900/10 transition-colors">
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-mono font-bold text-sm text-emerald-400">{sys.systemCode}</span>
                               <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
                                 isActive 
@@ -890,6 +916,12 @@ export default function AdminPanel({ isOpen, onClose }) {
                               }`}>
                                 {sys.status}
                               </span>
+                              {sys.company && (
+                                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center gap-1">
+                                  <Building className="w-3 h-3" />
+                                  {sys.company.companyCode || sys.company.companyName}
+                                </span>
+                              )}
                               {sys.sirenStatus && (
                                 <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded-full border ${
                                   sys.sirenStatus === 'ON' 
