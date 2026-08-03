@@ -34,6 +34,12 @@ public class AlarmSystem {
     @Column(name = "last_status_changed_at")
     private LocalDateTime lastStatusChangedAt = LocalDateTime.now();
 
+    // ===== COMPANY RELATIONSHIP =====
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "company_id")
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "alarmSystems", "users"})
+    private Company company;
+
     // ===== Z8B PANEL FIELDS =====
     @Column(name = "panel_sim_number")
     private String panelSimNumber;

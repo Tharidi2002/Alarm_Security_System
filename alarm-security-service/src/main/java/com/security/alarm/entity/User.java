@@ -2,6 +2,7 @@ package com.security.alarm.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 @Entity
 @Table(name = "users")
@@ -18,8 +19,14 @@ public class User {
     private String username;
 
     @Column(nullable = false)
-    private String password; // Stored as BCrypt hash
+    private String password;
 
     @Column(nullable = false, length = 20)
     private String role;
+
+    // ===== COMPANY RELATIONSHIP =====
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "company_id")
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "users"})
+    private Company company;
 }

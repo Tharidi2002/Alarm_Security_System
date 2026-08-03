@@ -17,4 +17,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<User> findAllAdmins();
     
     Optional<User> findFirstByRoleOrderByIdAsc(String role);
+    
+    // ===== COMPANY METHODS =====
+    List<User> findByCompanyId(Long companyId);
+    List<User> findByCompanyIdAndRole(Long companyId, String role);
 }

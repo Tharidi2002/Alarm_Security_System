@@ -3,10 +3,12 @@ package com.security.alarm.controller;
 import com.security.alarm.entity.User;
 import com.security.alarm.entity.UserSystem;
 import com.security.alarm.entity.AlarmSystem;
+import com.security.alarm.entity.Company;
 import com.security.alarm.entity.RegistrationAuditLog;
 import com.security.alarm.repository.UserRepository;
 import com.security.alarm.repository.UserSystemRepository;
 import com.security.alarm.repository.AlarmSystemRepository;
+import com.security.alarm.repository.CompanyRepository;
 import com.security.alarm.repository.RegistrationAuditLogRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -30,6 +32,7 @@ public class AdminController {
     private final UserRepository userRepository;
     private final UserSystemRepository userSystemRepository;
     private final AlarmSystemRepository alarmSystemRepository;
+    private final CompanyRepository companyRepository;
     private final PasswordEncoder passwordEncoder;
     private final AlarmZoneRepository alarmZoneRepository;
     private final RegistrationAuditLogRepository auditLogRepository;
@@ -37,12 +40,14 @@ public class AdminController {
     public AdminController(UserRepository userRepository,
                         UserSystemRepository userSystemRepository,
                         AlarmSystemRepository alarmSystemRepository,
+                        CompanyRepository companyRepository,
                         PasswordEncoder passwordEncoder,
                         AlarmZoneRepository alarmZoneRepository,
                         RegistrationAuditLogRepository auditLogRepository) {
         this.userRepository = userRepository;
         this.userSystemRepository = userSystemRepository;
         this.alarmSystemRepository = alarmSystemRepository;
+        this.companyRepository = companyRepository;
         this.passwordEncoder = passwordEncoder;
         this.alarmZoneRepository = alarmZoneRepository;
         this.auditLogRepository = auditLogRepository;
@@ -50,8 +55,14 @@ public class AdminController {
 
     // ========== USER MANAGEMENT ==========
     @GetMapping("/users")
-    public ResponseEntity<List<Map<String, Object>>> getUsers() {
-        List<User> users = userRepository.findAll();
+    public ResponseEntity<List<Map<String, Object>>> getUsers(@RequestParam(required = false) Long companyId) {
+        List<User> users;
+        if (companyId != null && companyId > 0) {
+            users = userRepository.findByCompanyId(companyId);
+        } else {
+            users = userRepository.findAll();
+        }
+        
         Optional<User> firstAdmin = userRepository.findFirstByRoleOrderByIdAsc("ADMIN");
         Long firstAdminId = firstAdmin.map(User::getId).orElse(null);
         
@@ -61,6 +72,12 @@ public class AdminController {
             map.put("username", u.getUsername());
             map.put("role", u.getRole());
             map.put("isFirstAdmin", u.getId().equals(firstAdminId));
+            
+            // Company info
+            if (u.getCompany() != null) {
+                map.put("companyId", u.getCompany().getId());
+                map.put("companyName", u.getCompany().getCompanyName());
+            }
             
             List<UserSystem> mappings = userSystemRepository.findAllByUserId(u.getId());
             List<Map<String, Object>> assigned = mappings.stream()
@@ -92,109 +109,18 @@ public class AdminController {
         newUser.setPassword(passwordEncoder.encode(newUser.getPassword()));
         User saved = userRepository.save(newUser);
         
-        // ===== AUDIT LOG: Admin created user via panel =====
+        // ===== AUDIT LOG =====
         String clientIp = getClientIp(request);
-        String adminUsername = getAdminUsername(); // Get from session/security context
-        
         RegistrationAuditLog log = new RegistrationAuditLog();
         log.setUsername(newUser.getUsername());
         log.setRole(newUser.getRole());
-        log.setRegisteredBy("ADMIN:" + adminUsername);
+        log.setRegisteredBy("ADMIN:admin");
         log.setRegisteredFromIp(clientIp);
         log.setMethod("ADMIN_PANEL");
-        log.setNotes("User created by admin: " + adminUsername);
+        log.setNotes("User created by admin");
         auditLogRepository.save(log);
         
         return ResponseEntity.ok(saved);
-    }
-
-    @PostMapping("/users/{userId}/assign")
-    public ResponseEntity<?> assignSystems(@PathVariable Long userId, @RequestBody Map<String, List<Long>> payload) {
-        Optional<User> userOpt = userRepository.findById(userId);
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        List<Long> systemIds = payload.get("systemIds");
-        if (systemIds == null) {
-            return ResponseEntity.badRequest().body("systemIds list is required");
-        }
-
-        userSystemRepository.deleteByUserId(userId);
-
-        List<UserSystem> newAssignments = systemIds.stream().map(sysId -> {
-            UserSystem mapping = new UserSystem();
-            mapping.setUserId(userId);
-            mapping.setSystemId(sysId);
-            return mapping;
-        }).collect(Collectors.toList());
-
-        userSystemRepository.saveAll(newAssignments);
-        return ResponseEntity.ok("Systems assigned successfully");
-    }
-
-    @PutMapping("/users/{userId}/reset-password")
-    public ResponseEntity<?> resetUserPassword(
-            @PathVariable Long userId,
-            @RequestBody Map<String, String> payload) {
-        
-        String newPassword = payload.get("newPassword");
-        
-        if (newPassword == null || newPassword.trim().isEmpty()) {
-            return ResponseEntity.badRequest().body("New password is required");
-        }
-        if (newPassword.length() < 6) {
-            return ResponseEntity.badRequest().body("Password must be at least 6 characters");
-        }
-        
-        Optional<User> userOpt = userRepository.findById(userId);
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        
-        User user = userOpt.get();
-        user.setPassword(passwordEncoder.encode(newPassword.trim()));
-        userRepository.save(user);
-        
-        Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        response.put("message", "Password reset successfully for user: " + user.getUsername());
-        response.put("userId", user.getId());
-        response.put("username", user.getUsername());
-        
-        return ResponseEntity.ok(response);
-    }
-
-    // ========== DELETE USER WITH PROTECTION ==========
-    @DeleteMapping("/users/{userId}")
-    public ResponseEntity<?> deleteUser(@PathVariable Long userId) {
-        Optional<User> userOpt = userRepository.findById(userId);
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        
-        User user = userOpt.get();
-        
-        // ===== PROTECT FIRST ADMIN =====
-        Optional<User> firstAdmin = userRepository.findFirstByRoleOrderByIdAsc("ADMIN");
-        if (firstAdmin.isPresent() && firstAdmin.get().getId().equals(userId)) {
-            return ResponseEntity.badRequest().body("Cannot delete the primary admin account. This is the first admin created in the system.");
-        }
-        
-        if ("ADMIN".equalsIgnoreCase(user.getRole())) {
-            long adminCount = userRepository.countAdmins();
-            if (adminCount <= 1) {
-                return ResponseEntity.badRequest().body("Cannot delete the last admin account. At least one admin must exist.");
-            }
-        }
-        
-        try {
-            userSystemRepository.deleteByUserId(userId);
-            userRepository.deleteById(userId);
-            return ResponseEntity.ok("User deleted successfully");
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body("Failed to delete user: " + e.getMessage());
-        }
     }
 
     // ========== SYSTEM MANAGEMENT ==========
@@ -216,12 +142,18 @@ public class AdminController {
     }
 
     @GetMapping("/systems")
-    public ResponseEntity<List<AlarmSystem>> getSystems() {
-        return ResponseEntity.ok(alarmSystemRepository.findAll());
+    public ResponseEntity<List<AlarmSystem>> getSystems(@RequestParam(required = false) Long companyId) {
+        List<AlarmSystem> systems;
+        if (companyId != null && companyId > 0) {
+            systems = alarmSystemRepository.findByCompanyId(companyId);
+        } else {
+            systems = alarmSystemRepository.findAll();
+        }
+        return ResponseEntity.ok(systems);
     }
 
     @PostMapping("/systems")
-    public ResponseEntity<?> createSystem(@RequestBody AlarmSystem system) {
+    public ResponseEntity<?> createSystem(@RequestBody AlarmSystem system, @RequestParam(required = false) Long companyId) {
         if (alarmSystemRepository.count() >= 5) {
             return ResponseEntity.badRequest().body("System registration limit reached. A maximum of 5 systems can be registered.");
         }
@@ -261,6 +193,11 @@ public class AdminController {
         newSystem.setSimNumber(system.getSimNumber().trim());
         newSystem.setStatus(system.getStatus() != null ? system.getStatus() : "ACTIVE");
         newSystem.setLastStatusChangedAt(LocalDateTime.now());
+        
+        // ===== Set company =====
+        if (companyId != null && companyId > 0) {
+            companyRepository.findById(companyId).ifPresent(newSystem::setCompany);
+        }
         
         newSystem.setPanelSimNumber(system.getSimNumber().trim());
         newSystem.setPanelPassword("8888");
@@ -312,107 +249,6 @@ public class AdminController {
         }
     }
 
-    @GetMapping("/systems/{id}")
-    public ResponseEntity<?> getSystemById(@PathVariable Long id) {
-        Optional<AlarmSystem> systemOpt = alarmSystemRepository.findById(id);
-        if (systemOpt.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        return ResponseEntity.ok(systemOpt.get());
-    }
-
-    @PutMapping("/systems/{id}")
-    public ResponseEntity<?> updateSystem(@PathVariable Long id, @RequestBody AlarmSystem updated) {
-        Optional<AlarmSystem> existingOpt = alarmSystemRepository.findById(id);
-        if (existingOpt.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        AlarmSystem existing = existingOpt.get();
-
-        if (updated.getLocation() != null && !updated.getLocation().trim().isEmpty()) {
-            existing.setLocation(updated.getLocation().trim());
-        }
-
-        if (updated.getDescription() != null) {
-            existing.setDescription(updated.getDescription().trim());
-        }
-
-        if (updated.getSimNumber() != null && !updated.getSimNumber().trim().isEmpty()) {
-            String newSim = updated.getSimNumber().trim();
-            Optional<AlarmSystem> simCheck = alarmSystemRepository.findBySimNumber(newSim);
-            if (simCheck.isPresent() && !simCheck.get().getId().equals(id)) {
-                return ResponseEntity.badRequest().body("SIM number already registered to another system");
-            }
-            existing.setSimNumber(newSim);
-        }
-
-        if (updated.getPanelSimNumber() != null && !updated.getPanelSimNumber().trim().isEmpty()) {
-            existing.setPanelSimNumber(updated.getPanelSimNumber().trim());
-        }
-        if (updated.getPanelPassword() != null && !updated.getPanelPassword().trim().isEmpty()) {
-            existing.setPanelPassword(updated.getPanelPassword().trim());
-        }
-        if (updated.getDisarmCommand() != null && !updated.getDisarmCommand().trim().isEmpty()) {
-            existing.setDisarmCommand(updated.getDisarmCommand().trim());
-        }
-        if (updated.getArmCommand() != null && !updated.getArmCommand().trim().isEmpty()) {
-            existing.setArmCommand(updated.getArmCommand().trim());
-        }
-        if (updated.getSirenStopCommand() != null && !updated.getSirenStopCommand().trim().isEmpty()) {
-            existing.setSirenStopCommand(updated.getSirenStopCommand().trim());
-        }
-
-        if (updated.getStatus() != null && !updated.getStatus().equalsIgnoreCase(existing.getStatus())) {
-            existing.setStatus(updated.getStatus());
-            existing.setLastStatusChangedAt(LocalDateTime.now());
-        }
-
-        AlarmSystem saved = alarmSystemRepository.save(existing);
-        return ResponseEntity.ok(saved);
-    }
-
-    @PatchMapping("/systems/{id}/status")
-    public ResponseEntity<?> toggleSystemStatus(@PathVariable Long id, @RequestBody Map<String, String> payload) {
-        Optional<AlarmSystem> existingOpt = alarmSystemRepository.findById(id);
-        if (existingOpt.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        String newStatus = payload.get("status");
-        if (newStatus == null || newStatus.trim().isEmpty()) {
-            return ResponseEntity.badRequest().body("Status parameter is required");
-        }
-
-        if (!newStatus.equalsIgnoreCase("ACTIVE") && !newStatus.equalsIgnoreCase("INACTIVE")) {
-            return ResponseEntity.badRequest().body("Status must be ACTIVE or INACTIVE");
-        }
-
-        AlarmSystem existing = existingOpt.get();
-        if (!newStatus.equalsIgnoreCase(existing.getStatus())) {
-            existing.setStatus(newStatus.toUpperCase());
-            existing.setLastStatusChangedAt(LocalDateTime.now());
-            alarmSystemRepository.save(existing);
-        }
-
-        return ResponseEntity.ok(existing);
-    }
-
-    @DeleteMapping("/systems/{id}")
-    public ResponseEntity<?> deleteSystem(@PathVariable Long id) {
-        Optional<AlarmSystem> existingOpt = alarmSystemRepository.findById(id);
-        if (existingOpt.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        try {
-            alarmZoneRepository.deleteBySystemId(id);
-            alarmSystemRepository.deleteById(id);
-            return ResponseEntity.ok("System deleted successfully");
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body("Failed to delete system: " + e.getMessage());
-        }
-    }
-
     // ===== HELPER: Get Client IP =====
     private String getClientIp(HttpServletRequest request) {
         String ip = request.getHeader("X-Forwarded-For");
@@ -420,12 +256,5 @@ public class AdminController {
             ip = request.getRemoteAddr();
         }
         return ip;
-    }
-
-    // ===== HELPER: Get Admin Username (from session/context) =====
-    private String getAdminUsername() {
-        // In a real implementation, get from SecurityContext
-        // For now, return a placeholder
-        return "admin";
     }
 }

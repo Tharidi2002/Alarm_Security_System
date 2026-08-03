@@ -4,11 +4,13 @@ import com.security.alarm.entity.User;
 import com.security.alarm.entity.UserSystem;
 import com.security.alarm.entity.SystemConfig;
 import com.security.alarm.entity.RegistrationAuditLog;
+import com.security.alarm.entity.Company;
 import com.security.alarm.repository.UserRepository;
 import com.security.alarm.repository.UserSystemRepository;
 import com.security.alarm.repository.AlarmSystemRepository;
 import com.security.alarm.repository.SystemConfigRepository;
 import com.security.alarm.repository.RegistrationAuditLogRepository;
+import com.security.alarm.repository.CompanyRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
@@ -33,6 +35,7 @@ public class AuthController {
     private final AlarmSystemRepository alarmSystemRepository;
     private final SystemConfigRepository systemConfigRepository;
     private final RegistrationAuditLogRepository auditLogRepository;
+    private final CompanyRepository companyRepository;
     private final PasswordEncoder passwordEncoder;
 
     // Rate limiting
@@ -46,12 +49,14 @@ public class AuthController {
                           AlarmSystemRepository alarmSystemRepository,
                           SystemConfigRepository systemConfigRepository,
                           RegistrationAuditLogRepository auditLogRepository,
+                          CompanyRepository companyRepository,
                           PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.userSystemRepository = userSystemRepository;
         this.alarmSystemRepository = alarmSystemRepository;
         this.systemConfigRepository = systemConfigRepository;
         this.auditLogRepository = auditLogRepository;
+        this.companyRepository = companyRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -160,7 +165,7 @@ public class AuthController {
         }
     }
 
-    // ========== LOGIN ENDPOINT ==========
+    // ========== LOGIN ENDPOINT - UPDATED ==========
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> credentials) {
         String username = credentials.get("username");
@@ -197,11 +202,18 @@ public class AuthController {
         response.put("username", user.getUsername());
         response.put("role", user.getRole());
         response.put("assignedSystems", assignedSystems);
+        
+        // ===== COMPANY INFO =====
+        if (user.getCompany() != null) {
+            response.put("companyId", user.getCompany().getId());
+            response.put("companyName", user.getCompany().getCompanyName());
+            response.put("companyCode", user.getCompany().getCompanyCode());
+        }
 
         return ResponseEntity.ok(response);
     }
 
-    // ========== REGISTER ENDPOINT - WITH FULL AUDIT LOG ==========
+    // ========== REGISTER ENDPOINT ==========
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody Map<String, String> registrationData, HttpServletRequest request) {
         String username = registrationData.get("username");
@@ -237,12 +249,10 @@ public class AuthController {
         }
 
         boolean hasAdmin = userRepository.existsByRole("ADMIN");
-        RegistrationAuditLog logEntry = new RegistrationAuditLog();
 
         // ===== ADMIN role validation =====
         if ("ADMIN".equalsIgnoreCase(role)) {
             if (hasAdmin) {
-                // Check if secret code is provided
                 if (secretCode == null || secretCode.trim().isEmpty()) {
                     Map<String, Object> errorResponse = new HashMap<>();
                     errorResponse.put("error", "Secret code is required to register admin.");
@@ -250,7 +260,6 @@ public class AuthController {
                     return ResponseEntity.status(403).body(errorResponse);
                 }
 
-                // Verify code from database
                 Optional<SystemConfig> configOpt = systemConfigRepository.findByConfigKey(SECRET_CODE_KEY);
                 if (configOpt.isEmpty()) {
                     return ResponseEntity.status(500).body("System configuration error. Contact administrator.");
@@ -258,7 +267,6 @@ public class AuthController {
 
                 String storedCode = configOpt.get().getConfigValue();
                 
-                // Compare codes
                 if (!secretCode.equals(storedCode)) {
                     Map<String, Object> errorResponse = new HashMap<>();
                     errorResponse.put("error", "Invalid secret code.");
@@ -266,24 +274,26 @@ public class AuthController {
                     return ResponseEntity.status(403).body(errorResponse);
                 }
 
-                // Log - ADMIN via secret code
-                logEntry.setUsername(username.trim());
-                logEntry.setRole("ADMIN");
-                logEntry.setRegisteredBy("SECRET_CODE (" + clientIp + ")");
-                logEntry.setRegisteredFromIp(clientIp);
-                logEntry.setMethod("FORM");
-                logEntry.setNotes("Admin registered using secret code.");
-                auditLogRepository.save(logEntry);
+                // Log admin registration
+                RegistrationAuditLog log = new RegistrationAuditLog();
+                log.setUsername(username.trim());
+                log.setRole("ADMIN");
+                log.setRegisteredBy("SECRET_CODE (" + clientIp + ")");
+                log.setRegisteredFromIp(clientIp);
+                log.setMethod("FORM");
+                log.setNotes("Admin registered using secret code.");
+                auditLogRepository.save(log);
                 
             } else {
                 // First admin - no code required
-                logEntry.setUsername(username.trim());
-                logEntry.setRole("ADMIN");
-                logEntry.setRegisteredBy("FIRST_ADMIN");
-                logEntry.setRegisteredFromIp(clientIp);
-                logEntry.setMethod("FORM");
-                logEntry.setNotes("First admin account created. System initialized.");
-                auditLogRepository.save(logEntry);
+                RegistrationAuditLog log = new RegistrationAuditLog();
+                log.setUsername(username.trim());
+                log.setRole("ADMIN");
+                log.setRegisteredBy("FIRST_ADMIN");
+                log.setRegisteredFromIp(clientIp);
+                log.setMethod("FORM");
+                log.setNotes("First admin account created. System initialized.");
+                auditLogRepository.save(log);
             }
         }
 
@@ -293,14 +303,14 @@ public class AuthController {
                 return ResponseEntity.badRequest().body("First account must be ADMIN. Please register as Admin.");
             }
             
-            // Log - USER via register form
-            logEntry.setUsername(username.trim());
-            logEntry.setRole("USER");
-            logEntry.setRegisteredBy("REGISTER_FORM (" + clientIp + ")");
-            logEntry.setRegisteredFromIp(clientIp);
-            logEntry.setMethod("FORM");
-            logEntry.setNotes("User registered via registration form.");
-            auditLogRepository.save(logEntry);
+            RegistrationAuditLog log = new RegistrationAuditLog();
+            log.setUsername(username.trim());
+            log.setRole("USER");
+            log.setRegisteredBy("REGISTER_FORM (" + clientIp + ")");
+            log.setRegisteredFromIp(clientIp);
+            log.setMethod("FORM");
+            log.setNotes("User registered via registration form.");
+            auditLogRepository.save(log);
         }
 
         // Create user
