@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchAlerts } from '../services/api';
+import { fetchAlerts, getPendingCount } from '../services/api';
 
 export function useAlerts(username) {
+  // ============================================================
+  // ALL HOOKS MUST BE CALLED IN THE SAME ORDER EVERY TIME
+  // ============================================================
+  
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newAlert, setNewAlert] = useState(null);
@@ -20,27 +24,23 @@ export function useAlerts(username) {
     try {
       if (showLoading) setLoading(true);
       
-      // Current scroll position එක save කරන්න
       if (tableContainerRef.current) {
         scrollPositionRef.current = tableContainerRef.current.scrollTop;
       }
 
       const data = await fetchAlerts(username);
       
-      // New alerts තියෙනවද කියලා check කරන්න
       const currentIds = new Set(data.map(a => a.id));
       const newAlerts = data.filter(a => !previousAlertIds.current.has(a.id));
       
       if (newAlerts.length > 0 && previousAlertIds.current.size > 0) {
-        // New alert එකක් තියෙනවා - Notification එක පෙන්වන්න
-        setNewAlert(newAlerts[0]); // පළවෙනි new alert එක show කරන්න
+        setNewAlert(newAlerts[0]);
       }
       
       previousAlertIds.current = currentIds;
       setAlerts(data);
       setStats(calculateStats(data));
       
-      // Scroll position එක restore කරන්න (table එක උඩට පනින්න එපා)
       setTimeout(() => {
         if (tableContainerRef.current) {
           tableContainerRef.current.scrollTop = scrollPositionRef.current;
@@ -58,13 +58,33 @@ export function useAlerts(username) {
     setNewAlert(null);
   }, []);
 
+  // ============================================================
+  // FIXED: useEffect for auto-refresh
+  // ============================================================
   useEffect(() => {
     loadAlerts(true);
     
-    // Auto-refresh - හැබැයි loading state එක පෙන්නන්න එපා
     const interval = setInterval(() => loadAlerts(false), 5000);
     return () => clearInterval(interval);
-  }, [loadAlerts]);
+  }, [loadAlerts]); // loadAlerts is already memoized with useCallback
+
+  // ============================================================
+  // FIXED: Separate useEffect for stats
+  // ============================================================
+  useEffect(() => {
+    const updateStats = async () => {
+      try {
+        const data = await getPendingCount(username);
+        setStats(prev => ({ ...prev, pending: data.pending || 0, resolved: data.resolved || 0 }));
+      } catch (error) {
+        console.error('Error updating stats:', error);
+      }
+    };
+    
+    updateStats();
+    const statsInterval = setInterval(updateStats, 10000);
+    return () => clearInterval(statsInterval);
+  }, [username]);
 
   return { 
     alerts, 

@@ -38,28 +38,26 @@ export default function Dashboard({ user, onLogout }) {
       
       <main className="p-3 sm:p-4 md:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fade-in">
         
-        {/* User Scope Alert Notification */}
-        {user.role === 'USER' && (
+        {/* NEW: Company Scope Alert Notification */}
+        {user.role === 'USER' && user.companyName && (
           <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 font-mono text-[10px] sm:text-xs text-slate-400">
             <div className="flex items-center gap-1 flex-wrap">
-              <span>Monitoring Scope:</span>
-              {user.assignedSystems && user.assignedSystems.length > 0 ? (
-                <span className="text-emerald-400 font-bold text-[10px] sm:text-xs">
-                  {user.assignedSystems.join(', ')}
-                </span>
-              ) : (
-                <span className="text-red-400 font-bold">No systems assigned</span>
+              <span>Company Scope:</span>
+              <span className="text-blue-400 font-bold text-[10px] sm:text-xs">
+                {user.companyName}
+              </span>
+              {user.companyCode && (
+                <span className="text-slate-500">({user.companyCode})</span>
               )}
             </div>
             <div className="text-[9px] sm:text-[10px] text-slate-500">
-              Only alerts belonging to your scope are visible.
+              Only alerts from your company are visible.
             </div>
           </div>
         )}
 
         <StatsCards stats={stats} />
         
-        {/* Alerts count badge */}
         <div className="flex flex-wrap justify-between items-center gap-2">
           <div className="text-xs sm:text-sm text-slate-400">
             Showing <span className="text-white font-bold">{alerts.length}</span> alerts
@@ -83,9 +81,11 @@ export default function Dashboard({ user, onLogout }) {
         />
       </main>
 
+      {/* NEW: Pass user to AdminPanel for role-based access */}
       <AdminPanel 
         isOpen={isAdminPanelOpen} 
-        onClose={() => setIsAdminPanelOpen(false)} 
+        onClose={() => setIsAdminPanelOpen(false)}
+        user={user}
       />
 
       <ReportGenerator
@@ -108,6 +108,9 @@ Dashboard.propTypes = {
   user: PropTypes.shape({
     username: PropTypes.string.isRequired,
     role: PropTypes.string.isRequired,
+    companyId: PropTypes.number,
+    companyName: PropTypes.string,
+    companyCode: PropTypes.string,
     assignedSystems: PropTypes.array,
   }).isRequired,
   onLogout: PropTypes.func.isRequired,

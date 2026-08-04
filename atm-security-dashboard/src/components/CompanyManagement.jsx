@@ -9,7 +9,7 @@ import {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 
-export default function CompanyManagement({ isOpen, onClose }) {
+export default function CompanyManagement({ isOpen, onClose, username, userRole }) {
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -45,7 +45,7 @@ export default function CompanyManagement({ isOpen, onClose }) {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(`${API_BASE_URL}/admin/companies`);
+      const response = await fetch(`${API_BASE_URL}/admin/companies${username ? `?username=${encodeURIComponent(username)}` : ''}`);
       if (response.ok) {
         const data = await response.json();
         setCompanies(data);
@@ -275,13 +275,15 @@ export default function CompanyManagement({ isOpen, onClose }) {
           >
             <RefreshCw className="w-4 h-4 text-slate-400" />
           </button>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-mono transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Add Company
-          </button>
+          {userRole === 'ADMIN' && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-mono transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add Company
+            </button>
+          )}
         </div>
       </div>
 
@@ -349,22 +351,26 @@ export default function CompanyManagement({ isOpen, onClose }) {
                 >
                   <Eye className="w-4 h-4" />
                 </button>
-                <button
-                  onClick={() => openEditModal(company)}
-                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded-lg transition-all"
-                  title="Edit Company"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => handleDeleteCompany(company)}
-                  className="p-1.5 bg-red-500/10 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/20 hover:border-red-500 rounded-lg transition-all"
-                  title="Delete Company"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
+                {userRole === 'ADMIN' && (
+                <>
+                  <button
+                    onClick={() => openEditModal(company)}
+                    className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded-lg transition-all"
+                    title="Edit Company"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteCompany(company)}
+                    className="p-1.5 bg-red-500/10 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/20 hover:border-red-500 rounded-lg transition-all"
+                    title="Delete Company"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </>
+              )}
             </div>
+          </div>
           ))
         )}
       </div>
@@ -800,5 +806,7 @@ CompanyViewModal.propTypes = {
 
 CompanyManagement.propTypes = {
   isOpen: PropTypes.bool.isRequired,
-  onClose: PropTypes.func.isRequired
+  onClose: PropTypes.func.isRequired,
+  username: PropTypes.string,
+  userRole: PropTypes.string,
 };

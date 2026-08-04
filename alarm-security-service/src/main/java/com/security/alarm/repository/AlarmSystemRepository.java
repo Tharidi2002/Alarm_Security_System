@@ -10,10 +10,17 @@ public interface AlarmSystemRepository extends JpaRepository<AlarmSystem, Long> 
     Optional<AlarmSystem> findBySimNumber(String simNumber);
     Optional<AlarmSystem> findBySystemCode(String systemCode);
     
-    // ===== COMPANY METHODS =====
+    // ============================================================
+    // COMPANY METHODS
+    // ============================================================
     List<AlarmSystem> findByCompanyId(Long companyId);
     List<AlarmSystem> findByCompanyIdAndStatus(Long companyId, String status);
     long countByCompanyId(Long companyId);
+    
+    // ============================================================
+    // NEW: Get systems by company with optional status filter
+    // ============================================================
+    List<AlarmSystem> findByCompanyIdOrderBySystemCodeAsc(Long companyId);
     
     @Query(value = "SELECT system_code FROM alarm_systems WHERE system_code LIKE 'ALARM-Z8B-%' ORDER BY id DESC LIMIT 1", nativeQuery = true)
     Optional<String> findLatestSystemCode();

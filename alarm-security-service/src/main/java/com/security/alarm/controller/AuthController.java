@@ -11,6 +11,7 @@ import com.security.alarm.repository.AlarmSystemRepository;
 import com.security.alarm.repository.SystemConfigRepository;
 import com.security.alarm.repository.RegistrationAuditLogRepository;
 import com.security.alarm.repository.CompanyRepository;
+import com.security.alarm.service.PermissionService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
@@ -37,6 +38,7 @@ public class AuthController {
     private final RegistrationAuditLogRepository auditLogRepository;
     private final CompanyRepository companyRepository;
     private final PasswordEncoder passwordEncoder;
+    private final PermissionService permissionService;
 
     // Rate limiting
     private final Map<String, AttemptInfo> attemptTracker = new ConcurrentHashMap<>();
@@ -50,7 +52,8 @@ public class AuthController {
                           SystemConfigRepository systemConfigRepository,
                           RegistrationAuditLogRepository auditLogRepository,
                           CompanyRepository companyRepository,
-                          PasswordEncoder passwordEncoder) {
+                          PasswordEncoder passwordEncoder,
+                          PermissionService permissionService) {
         this.userRepository = userRepository;
         this.userSystemRepository = userSystemRepository;
         this.alarmSystemRepository = alarmSystemRepository;
@@ -58,9 +61,13 @@ public class AuthController {
         this.auditLogRepository = auditLogRepository;
         this.companyRepository = companyRepository;
         this.passwordEncoder = passwordEncoder;
+        this.permissionService = permissionService;
     }
 
-    // ===== HANDLE OPTIONS REQUEST =====
+    // ============================================================
+    // HANDLE OPTIONS REQUEST
+    // ============================================================
+    
     @RequestMapping(value = "/**", method = RequestMethod.OPTIONS)
     public ResponseEntity<?> handleOptions() {
         return ResponseEntity.ok()
@@ -71,7 +78,10 @@ public class AuthController {
             .build();
     }
 
-    // ===== CHECK ADMIN STATUS =====
+    // ============================================================
+    // CHECK ADMIN STATUS
+    // ============================================================
+    
     @GetMapping("/check-admin")
     public ResponseEntity<Map<String, Object>> checkAdmin(HttpServletRequest request) {
         boolean hasAdmin = userRepository.existsByRole("ADMIN");
@@ -94,7 +104,10 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
-    // ===== VERIFY SECRET CODE =====
+    // ============================================================
+    // VERIFY SECRET CODE
+    // ============================================================
+    
     @PostMapping("/verify-secret")
     public ResponseEntity<?> verifySecret(@RequestBody Map<String, String> request, HttpServletRequest httpRequest) {
         String providedCode = request.get("secretCode");
@@ -165,7 +178,10 @@ public class AuthController {
         }
     }
 
-    // ========== LOGIN ENDPOINT - UPDATED ==========
+    // ============================================================
+    // LOGIN ENDPOINT - UPDATED WITH COMPANY INFO
+    // ============================================================
+    
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> credentials) {
         String username = credentials.get("username");
@@ -186,34 +202,66 @@ public class AuthController {
             return ResponseEntity.status(401).body("Invalid credentials");
         }
 
-        List<String> assignedSystems = List.of();
-
-        if ("USER".equalsIgnoreCase(user.getRole())) {
-            List<UserSystem> mappings = userSystemRepository.findAllByUserId(user.getId());
-            assignedSystems = mappings.stream()
-                .map(m -> alarmSystemRepository.findById(m.getSystemId()))
-                .filter(Optional::isPresent)
-                .map(opt -> opt.get().getSystemCode())
-                .collect(Collectors.toList());
-        }
-
         Map<String, Object> response = new HashMap<>();
         response.put("id", user.getId());
         response.put("username", user.getUsername());
         response.put("role", user.getRole());
-        response.put("assignedSystems", assignedSystems);
-        
-        // ===== COMPANY INFO =====
+
+        // ============================================================
+        // FIXED: Add company info
+        // ============================================================
         if (user.getCompany() != null) {
             response.put("companyId", user.getCompany().getId());
             response.put("companyName", user.getCompany().getCompanyName());
             response.put("companyCode", user.getCompany().getCompanyCode());
+        } else {
+            response.put("companyId", null);
+            response.put("companyName", null);
+            response.put("companyCode", null);
+        }
+
+        // ============================================================
+        // Get accessible systems based on role
+        // ============================================================
+        List<String> accessibleSystems;
+        
+        if ("ADMIN".equalsIgnoreCase(user.getRole())) {
+            accessibleSystems = alarmSystemRepository.findAll().stream()
+                .map(s -> s.getSystemCode())
+                .collect(Collectors.toList());
+        } else {
+            Long companyId = user.getCompany() != null ? user.getCompany().getId() : null;
+            if (companyId != null) {
+                accessibleSystems = alarmSystemRepository.findByCompanyId(companyId).stream()
+                    .map(s -> s.getSystemCode())
+                    .collect(Collectors.toList());
+            } else {
+                accessibleSystems = List.of();
+            }
+        }
+        
+        response.put("accessibleSystems", accessibleSystems);
+
+        // Also keep assignedSystems for backward compatibility
+        if ("USER".equalsIgnoreCase(user.getRole())) {
+            List<UserSystem> mappings = userSystemRepository.findAllByUserId(user.getId());
+            List<String> assignedSystems = mappings.stream()
+                .map(m -> alarmSystemRepository.findById(m.getSystemId()))
+                .filter(Optional::isPresent)
+                .map(opt -> opt.get().getSystemCode())
+                .collect(Collectors.toList());
+            response.put("assignedSystems", assignedSystems);
+        } else {
+            response.put("assignedSystems", accessibleSystems);
         }
 
         return ResponseEntity.ok(response);
     }
 
-    // ========== REGISTER ENDPOINT ==========
+    // ============================================================
+    // REGISTER ENDPOINT - UPDATED WITH COMPANY SUPPORT
+    // ============================================================
+    
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody Map<String, String> registrationData, HttpServletRequest request) {
         String username = registrationData.get("username");
@@ -221,6 +269,7 @@ public class AuthController {
         String confirmPassword = registrationData.get("confirmPassword");
         String role = registrationData.get("role");
         String secretCode = registrationData.get("secretCode");
+        String companyIdStr = registrationData.get("companyId");
         String clientIp = getClientIp(request);
 
         // Basic validation
@@ -249,8 +298,31 @@ public class AuthController {
         }
 
         boolean hasAdmin = userRepository.existsByRole("ADMIN");
+        
+        // ============================================================
+        // NEW: Validate company for USER role
+        // ============================================================
+        Long companyId = null;
+        Company company = null;
+        
+        if ("USER".equalsIgnoreCase(role)) {
+            if (companyIdStr == null || companyIdStr.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body("Company is required for USER role");
+            }
+            try {
+                companyId = Long.parseLong(companyIdStr.trim());
+            } catch (NumberFormatException e) {
+                return ResponseEntity.badRequest().body("Invalid company ID");
+            }
+            
+            Optional<Company> companyOpt = companyRepository.findById(companyId);
+            if (companyOpt.isEmpty()) {
+                return ResponseEntity.badRequest().body("Company not found");
+            }
+            company = companyOpt.get();
+        }
 
-        // ===== ADMIN role validation =====
+        // ADMIN role validation
         if ("ADMIN".equalsIgnoreCase(role)) {
             if (hasAdmin) {
                 if (secretCode == null || secretCode.trim().isEmpty()) {
@@ -297,7 +369,7 @@ public class AuthController {
             }
         }
 
-        // ===== USER role validation =====
+        // USER role validation
         if ("USER".equalsIgnoreCase(role)) {
             if (!hasAdmin) {
                 return ResponseEntity.badRequest().body("First account must be ADMIN. Please register as Admin.");
@@ -309,7 +381,7 @@ public class AuthController {
             log.setRegisteredBy("REGISTER_FORM (" + clientIp + ")");
             log.setRegisteredFromIp(clientIp);
             log.setMethod("FORM");
-            log.setNotes("User registered via registration form.");
+            log.setNotes("User registered via registration form. Company: " + (company != null ? company.getCompanyName() : "None"));
             auditLogRepository.save(log);
         }
 
@@ -318,6 +390,7 @@ public class AuthController {
         newUser.setUsername(username.trim());
         newUser.setPassword(passwordEncoder.encode(password));
         newUser.setRole(role.toUpperCase());
+        newUser.setCompany(company); // NEW: Set company
 
         User savedUser = userRepository.save(newUser);
 
@@ -332,12 +405,19 @@ public class AuthController {
         response.put("id", savedUser.getId());
         response.put("username", savedUser.getUsername());
         response.put("role", savedUser.getRole());
+        if (company != null) {
+            response.put("companyId", company.getId());
+            response.put("companyName", company.getCompanyName());
+        }
         response.put("message", "User registered successfully");
 
         return ResponseEntity.ok(response);
     }
 
-    // ===== GET REGISTRATION AUDIT LOGS =====
+    // ============================================================
+    // GET REGISTRATION AUDIT LOGS
+    // ============================================================
+    
     @GetMapping("/audit-logs")
     public ResponseEntity<?> getAuditLogs(@RequestParam(required = false) String role) {
         List<RegistrationAuditLog> logs;
@@ -356,7 +436,10 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
-    // ===== HELPER: Get Client IP =====
+    // ============================================================
+    // HELPER: Get Client IP
+    // ============================================================
+    
     private String getClientIp(HttpServletRequest request) {
         String ip = request.getHeader("X-Forwarded-For");
         if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
@@ -365,7 +448,10 @@ public class AuthController {
         return ip;
     }
 
-    // ===== INNER CLASS: Attempt Info =====
+    // ============================================================
+    // INNER CLASS: Attempt Info
+    // ============================================================
+    
     private static class AttemptInfo {
         private int attempts = 0;
         private LocalDateTime firstAttemptTime = LocalDateTime.now();

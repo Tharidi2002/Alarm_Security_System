@@ -1,10 +1,15 @@
 package com.security.alarm.controller;
 
 import com.security.alarm.entity.AlertLog;
+import com.security.alarm.entity.AlarmSystem;
 import com.security.alarm.service.AlertService;
+import com.security.alarm.service.PermissionService;
+import com.security.alarm.repository.AlarmSystemRepository;
+import com.security.alarm.repository.AlertLogRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import jakarta.servlet.http.HttpServletRequest;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,20 +21,24 @@ import java.util.Optional;
 public class AlertController {
 
     private final AlertService alertService;
-    private final com.security.alarm.repository.AlarmSystemRepository alarmSystemRepository;
-    private final com.security.alarm.repository.AlertLogRepository alertLogRepository;
+    private final AlarmSystemRepository alarmSystemRepository;
+    private final AlertLogRepository alertLogRepository;
+    private final PermissionService permissionService;
 
     public AlertController(AlertService alertService,
-                           com.security.alarm.repository.AlarmSystemRepository alarmSystemRepository,
-                           com.security.alarm.repository.AlertLogRepository alertLogRepository) {
+                           AlarmSystemRepository alarmSystemRepository,
+                           AlertLogRepository alertLogRepository,
+                           PermissionService permissionService) {
         this.alertService = alertService;
         this.alarmSystemRepository = alarmSystemRepository;
         this.alertLogRepository = alertLogRepository;
+        this.permissionService = permissionService;
     }
 
     // ============================================================
     // SMS SIMULATE - Process all commands
     // ============================================================
+    
     @PostMapping("/sms-simulate")
     public ResponseEntity<?> simulateSMS(@RequestBody Map<String, String> smsData) {
         String simNumber = smsData.get("simNumber");
@@ -73,13 +82,14 @@ public class AlertController {
     }
 
     // ============================================================
-    // SET COMMAND - ARM / DISARM (Tech Department Request)
-    // Direct SMS to panel - NO ESP32
+    // SET COMMAND - ARM / DISARM
     // ============================================================
+    
     @PostMapping("/set-command")
     public ResponseEntity<?> setCommand(
             @RequestParam String atmCode,
-            @RequestParam String command) {
+            @RequestParam String command,
+            @RequestParam(required = false) String username) {
         
         if (atmCode == null || atmCode.trim().isEmpty()) {
             return ResponseEntity.badRequest().body("atmCode is required");
@@ -95,14 +105,21 @@ public class AlertController {
         }
         
         try {
-            Optional<com.security.alarm.entity.AlarmSystem> systemOpt = 
-                alarmSystemRepository.findBySystemCode(atmCode);
-            
+            Optional<AlarmSystem> systemOpt = alarmSystemRepository.findBySystemCode(atmCode);
             if (systemOpt.isEmpty()) {
                 return ResponseEntity.badRequest().body("System not found: " + atmCode);
             }
             
-            com.security.alarm.entity.AlarmSystem system = systemOpt.get();
+            AlarmSystem system = systemOpt.get();
+            
+            // ============================================================
+            // NEW: Permission check - USER can only manage their company
+            // ============================================================
+            if (username != null && !username.isEmpty()) {
+                if (!permissionService.canManageSystem(username, system.getId())) {
+                    return ResponseEntity.status(403).body("Access denied: You can only manage systems in your company");
+                }
+            }
             
             // Send SMS to panel
             String panelNumber = system.getPanelSimNumber();
@@ -119,7 +136,6 @@ public class AlertController {
                 logStatus = "ARMED";
                 logType = "ARM";
                 
-                // Send SMS to panel
                 boolean sent = sendSmsToPanel(panelNumber, smsCommand);
                 if (!sent) {
                     return ResponseEntity.status(500).body("Failed to send ARM SMS to panel");
@@ -134,7 +150,6 @@ public class AlertController {
                 logStatus = "RESOLVED";
                 logType = "DISARM";
                 
-                // Send SMS to panel
                 boolean sent = sendSmsToPanel(panelNumber, smsCommand);
                 if (!sent) {
                     return ResponseEntity.status(500).body("Failed to send DISARM SMS to panel");
@@ -143,7 +158,6 @@ public class AlertController {
                 system.setSirenStatus("OFF");
                 alarmSystemRepository.save(system);
                 
-                // Resolve all pending alerts
                 List<AlertLog> pendingAlerts = alertLogRepository
                     .findByAlarmSystemIdAndStatusOrderByReceivedAtDesc(system.getId(), "PENDING");
                 
@@ -188,16 +202,12 @@ public class AlertController {
     }
 
     // ============================================================
-    // ESP32 COMMAND POLLING - REMOVED (No longer needed)
-    // ============================================================
-    // @GetMapping("/command/{atmCode}") - REMOVED
-    // ESP32 polling endpoint is no longer available
-
-    // ============================================================
     // DISARM SYSTEM - Resolve all alerts + Siren OFF
     // ============================================================
+    
     @PostMapping("/disarm")
-    public ResponseEntity<?> disarmSystem(@RequestBody Map<String, String> request) {
+    public ResponseEntity<?> disarmSystem(@RequestBody Map<String, String> request,
+                                          @RequestParam(required = false) String username) {
         String systemCode = request.get("systemCode");
         String triggeredBy = request.get("triggeredBy");
         
@@ -206,6 +216,14 @@ public class AlertController {
         }
         
         try {
+            // Permission check
+            Optional<AlarmSystem> systemOpt = alarmSystemRepository.findBySystemCode(systemCode);
+            if (systemOpt.isPresent() && username != null && !username.isEmpty()) {
+                if (!permissionService.canManageSystem(username, systemOpt.get().getId())) {
+                    return ResponseEntity.status(403).body("Access denied");
+                }
+            }
+            
             AlertService.DisarmResult result = alertService.disarmSystem(systemCode, triggeredBy);
             
             Map<String, Object> response = new HashMap<>();
@@ -231,8 +249,10 @@ public class AlertController {
     // ============================================================
     // STOP SIREN ONLY
     // ============================================================
+    
     @PostMapping("/stop-siren")
-    public ResponseEntity<?> stopSirenOnly(@RequestBody Map<String, String> request) {
+    public ResponseEntity<?> stopSirenOnly(@RequestBody Map<String, String> request,
+                                           @RequestParam(required = false) String username) {
         String systemCode = request.get("systemCode");
         String triggeredBy = request.get("triggeredBy");
         
@@ -241,6 +261,14 @@ public class AlertController {
         }
         
         try {
+            // Permission check
+            Optional<AlarmSystem> systemOpt = alarmSystemRepository.findBySystemCode(systemCode);
+            if (systemOpt.isPresent() && username != null && !username.isEmpty()) {
+                if (!permissionService.canManageSystem(username, systemOpt.get().getId())) {
+                    return ResponseEntity.status(403).body("Access denied");
+                }
+            }
+            
             AlertService.SirenStopResult result = alertService.stopSirenOnly(systemCode, triggeredBy);
             
             Map<String, Object> response = new HashMap<>();
@@ -266,6 +294,7 @@ public class AlertController {
     // ============================================================
     // HEARTBEAT
     // ============================================================
+    
     @PostMapping("/heartbeat")
     public ResponseEntity<?> heartbeat(@RequestBody Map<String, String> data) {
         String atmCode = data.get("atmCode");
@@ -282,24 +311,43 @@ public class AlertController {
     }
 
     // ============================================================
-    // GET ALL ALERTS
+    // GET ALL ALERTS - COMPANY-BASED FILTERING
     // ============================================================
+    
     @GetMapping
-    public ResponseEntity<List<AlertLog>> getAllAlerts(@RequestParam(required = false) String username) {
-        return ResponseEntity.ok(alertService.getAllAlerts(username));
+    public ResponseEntity<?> getAllAlerts(@RequestParam(required = false) String username) {
+        if (username != null && !username.isEmpty()) {
+            // If USER, get only their company alerts
+            if (permissionService.isUser(username)) {
+                List<AlertLog> alerts = alertService.getAlertsForCompany(username);
+                return ResponseEntity.ok(alerts);
+            }
+            // Admin - all alerts
+            return ResponseEntity.ok(alertService.getAllAlerts(username));
+        }
+        return ResponseEntity.ok(alertService.getAllAlerts(null));
     }
 
     // ============================================================
-    // RESOLVE ALERT
+    // RESOLVE ALERT - WITH PERMISSION CHECK
     // ============================================================
+    
     @PutMapping("/{id}/resolve")
     public ResponseEntity<?> resolveAlert(
             @PathVariable Long id,
             @RequestParam String resolvedBy,
             @RequestParam(required = false) String description,
+            @RequestParam(required = false) String username,
             HttpServletRequest request) {
         
         try {
+            // Permission check
+            if (username != null && !username.isEmpty()) {
+                if (!permissionService.canResolveAlert(username, id)) {
+                    return ResponseEntity.status(403).body("Access denied: You can only resolve alerts from your company");
+                }
+            }
+            
             String clientIp = request.getRemoteAddr();
             if (clientIp == null || clientIp.isEmpty() || "0:0:0:0:0:0:0:1".equals(clientIp)) {
                 clientIp = "127.0.0.1";
@@ -322,10 +370,19 @@ public class AlertController {
     }
 
     // ============================================================
-    // GET ALERT DETAILS
+    // GET ALERT DETAILS - WITH PERMISSION CHECK
     // ============================================================
+    
     @GetMapping("/{id}/details")
-    public ResponseEntity<?> getAlertDetails(@PathVariable Long id) {
+    public ResponseEntity<?> getAlertDetails(@PathVariable Long id,
+                                             @RequestParam(required = false) String username) {
+        // Permission check
+        if (username != null && !username.isEmpty()) {
+            if (!permissionService.canAccessAlert(username, id)) {
+                return ResponseEntity.status(403).body("Access denied");
+            }
+        }
+        
         AlertLog alert = alertService.getAlertWithDetails(id);
         if (alert == null) {
             return ResponseEntity.notFound().build();
@@ -334,44 +391,72 @@ public class AlertController {
     }
 
     // ============================================================
-    // GET PENDING COUNT
+    // GET PENDING COUNT - COMPANY-BASED
     // ============================================================
+    
     @GetMapping("/pending/count")
-    public ResponseEntity<Map<String, Object>> getPendingCount() {
+    public ResponseEntity<?> getPendingCount(@RequestParam(required = false) String username) {
+        long pending;
+        long resolved;
+        
+        if (username != null && !username.isEmpty() && permissionService.isUser(username)) {
+            // USER - count only their company alerts
+            List<AlertLog> alerts = alertService.getAlertsForCompany(username);
+            pending = alerts.stream().filter(a -> "PENDING".equals(a.getStatus())).count();
+            resolved = alerts.stream().filter(a -> "RESOLVED".equals(a.getStatus())).count();
+        } else {
+            pending = alertService.getPendingCount();
+            resolved = alertService.getResolvedCount();
+        }
+        
         Map<String, Object> response = new HashMap<>();
-        response.put("pending", alertService.getPendingCount());
-        response.put("resolved", alertService.getResolvedCount());
+        response.put("pending", pending);
+        response.put("resolved", resolved);
         return ResponseEntity.ok(response);
     }
 
     // ============================================================
-    // GET PENDING ALERTS
+    // GET PENDING ALERTS - COMPANY-BASED
     // ============================================================
+    
     @GetMapping("/pending")
-    public ResponseEntity<List<AlertLog>> getPendingAlerts() {
+    public ResponseEntity<?> getPendingAlerts(@RequestParam(required = false) String username) {
+        if (username != null && !username.isEmpty() && permissionService.isUser(username)) {
+            List<AlertLog> alerts = alertService.getAlertsForCompany(username);
+            List<AlertLog> pending = alerts.stream()
+                .filter(a -> "PENDING".equals(a.getStatus()))
+                .collect(java.util.stream.Collectors.toList());
+            return ResponseEntity.ok(pending);
+        }
         return ResponseEntity.ok(alertService.getPendingAlerts());
     }
 
     // ============================================================
-    // GET ALERTS BY STATUS
+    // GET ALERTS BY STATUS - COMPANY-BASED
     // ============================================================
+    
     @GetMapping("/status/{status}")
-    public ResponseEntity<List<AlertLog>> getAlertsByStatus(@PathVariable String status) {
+    public ResponseEntity<?> getAlertsByStatus(@PathVariable String status,
+                                               @RequestParam(required = false) String username) {
+        if (username != null && !username.isEmpty() && permissionService.isUser(username)) {
+            List<AlertLog> alerts = alertService.getAlertsForCompany(username);
+            List<AlertLog> filtered = alerts.stream()
+                .filter(a -> status.equalsIgnoreCase(a.getStatus()))
+                .collect(java.util.stream.Collectors.toList());
+            return ResponseEntity.ok(filtered);
+        }
         return ResponseEntity.ok(alertService.getAlertsByStatus(status));
     }
 
     // ============================================================
     // HELPER: Send SMS to Panel
     // ============================================================
+    
     private boolean sendSmsToPanel(String panelNumber, String smsCommand) {
-        // This is a placeholder - will be replaced with actual SMS service
-        // In production, use SmsService
+        // Placeholder - will be replaced with actual SMS service
         System.out.println("[SMS] Sending to " + panelNumber + ": " + smsCommand);
-        
         try {
-            // Simulate SMS sending
-            // return smsService.sendSms(panelNumber, smsCommand);
-            return true; // Placeholder for now
+            return true;
         } catch (Exception e) {
             System.err.println("Failed to send SMS: " + e.getMessage());
             return false;

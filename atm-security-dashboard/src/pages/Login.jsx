@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Shield, Lock, User, AlertCircle, Eye, EyeOff, Key } from 'lucide-react';
 import PropTypes from 'prop-types';
 import SecretCodeModal from '../components/SecretCodeModal';
+import { login } from '../services/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 
@@ -61,20 +62,7 @@ export default function Login({ onLoginSuccess, onShowRegister, onUnlockRegister
     setSuccessMessage('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, password }),
-      });
-
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || 'Invalid username or password');
-      }
-
-      const userData = await response.json();
+      const userData = await login(username, password);
       onLoginSuccess(userData);
     } catch (err) {
       setError(err.message);

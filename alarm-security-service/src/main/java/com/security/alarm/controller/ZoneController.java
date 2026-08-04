@@ -4,8 +4,10 @@ import com.security.alarm.entity.AlarmSystem;
 import com.security.alarm.entity.AlarmZone;
 import com.security.alarm.repository.AlarmSystemRepository;
 import com.security.alarm.repository.AlarmZoneRepository;
+import com.security.alarm.service.PermissionService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -15,20 +17,30 @@ import java.util.Optional;
 @RestController
 @RequestMapping("/api/admin/zones")
 @CrossOrigin(origins = {"http://localhost:5173", "http://localhost:3000"}, allowCredentials = "false")
-
 public class ZoneController {
 
     private final AlarmZoneRepository alarmZoneRepository;
     private final AlarmSystemRepository alarmSystemRepository;
+    private final PermissionService permissionService;
 
     public ZoneController(AlarmZoneRepository alarmZoneRepository,
-                          AlarmSystemRepository alarmSystemRepository) {
+                          AlarmSystemRepository alarmSystemRepository,
+                          PermissionService permissionService) {
         this.alarmZoneRepository = alarmZoneRepository;
         this.alarmSystemRepository = alarmSystemRepository;
+        this.permissionService = permissionService;
     }
 
     @GetMapping("/system/{systemId}")
-    public ResponseEntity<?> getZonesBySystem(@PathVariable Long systemId) {
+    public ResponseEntity<?> getZonesBySystem(@PathVariable Long systemId,
+                                              @RequestParam(required = false) String username) {
+        // Permission check
+        if (username != null && !username.isEmpty()) {
+            if (!permissionService.canAccessSystem(username, systemId)) {
+                return ResponseEntity.status(403).body("Access denied: You can only access systems in your company");
+            }
+        }
+        
         Optional<AlarmSystem> systemOpt = alarmSystemRepository.findById(systemId);
         if (systemOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
@@ -55,7 +67,9 @@ public class ZoneController {
     }
 
     @PutMapping("/{zoneId}")
-    public ResponseEntity<?> updateZone(@PathVariable Long zoneId, @RequestBody Map<String, Object> payload) {
+    public ResponseEntity<?> updateZone(@PathVariable Long zoneId,
+                                        @RequestBody Map<String, Object> payload,
+                                        @RequestParam(required = false) String username) {
         try {
             Optional<AlarmZone> zoneOpt = alarmZoneRepository.findById(zoneId);
             if (zoneOpt.isEmpty()) {
@@ -63,6 +77,13 @@ public class ZoneController {
             }
 
             AlarmZone zone = zoneOpt.get();
+            
+            // Permission check - check system ownership
+            if (username != null && !username.isEmpty() && zone.getAlarmSystem() != null) {
+                if (!permissionService.canManageSystem(username, zone.getAlarmSystem().getId())) {
+                    return ResponseEntity.status(403).body("Access denied");
+                }
+            }
             
             if (payload.containsKey("zoneName")) {
                 Object nameObj = payload.get("zoneName");
@@ -107,7 +128,6 @@ public class ZoneController {
             
             AlarmZone updated = alarmZoneRepository.save(zone);
             
-            // ===== FIX: Load the system to avoid proxy issues =====
             if (updated.getAlarmSystem() != null) {
                 Long systemId = updated.getAlarmSystem().getId();
                 alarmSystemRepository.findById(systemId).ifPresent(updated::setAlarmSystem);
@@ -124,7 +144,15 @@ public class ZoneController {
     }
 
     @PostMapping("/system/{systemId}/reset")
-    public ResponseEntity<?> resetZonesToDefault(@PathVariable Long systemId) {
+    public ResponseEntity<?> resetZonesToDefault(@PathVariable Long systemId,
+                                                 @RequestParam(required = false) String username) {
+        // Permission check
+        if (username != null && !username.isEmpty()) {
+            if (!permissionService.canManageSystem(username, systemId)) {
+                return ResponseEntity.status(403).body("Access denied");
+            }
+        }
+        
         Optional<AlarmSystem> systemOpt = alarmSystemRepository.findById(systemId);
         if (systemOpt.isEmpty()) {
             return ResponseEntity.notFound().build();

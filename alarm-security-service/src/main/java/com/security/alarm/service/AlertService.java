@@ -668,4 +668,49 @@ public class AlertService {
             return smsSent;
         }
     }
+
+        // ============================================================
+    // NEW: GET ALERTS FOR COMPANY (USER ROLE)
+    // ============================================================
+    
+    public List<AlertLog> getAlertsForCompany(String username) {
+        try {
+            Optional<User> userOpt = userRepository.findByUsername(username);
+            if (userOpt.isEmpty() || !"USER".equalsIgnoreCase(userOpt.get().getRole())) {
+                return new ArrayList<>();
+            }
+            
+            User user = userOpt.get();
+            if (user.getCompany() == null) {
+                return new ArrayList<>();
+            }
+            
+            Long companyId = user.getCompany().getId();
+            
+            // Get all systems in this company
+            List<AlarmSystem> systems = alarmSystemRepository.findByCompanyId(companyId);
+            List<Long> systemIds = systems.stream()
+                .map(AlarmSystem::getId)
+                .collect(java.util.stream.Collectors.toList());
+            
+            if (systemIds.isEmpty()) {
+                return new ArrayList<>();
+            }
+            
+            List<AlertLog> alerts = alertLogRepository.findAllByAlarmSystemIdInOrderByReceivedAtDesc(systemIds);
+            
+            // Set zone names
+            for (AlertLog alert : alerts) {
+                if (alert.getAlarmSystem() != null && alert.getZoneNumbers() != null) {
+                    alert.setZoneNames(getZoneNames(alert.getAlarmSystem().getId(), alert.getZoneNumbers()));
+                }
+            }
+            
+            return alerts;
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new ArrayList<>();
+        }
+    }
 }

@@ -13,7 +13,7 @@ public interface AlertLogRepository extends JpaRepository<AlertLog, Long> {
     
     List<AlertLog> findAllByAlarmSystemIdInOrderByReceivedAtDesc(List<Long> systemIds);
     
-    // ===== FOR SIREN CONTROL =====
+    // FOR SIREN CONTROL
     List<AlertLog> findByAlarmSystemIdAndStatusOrderByReceivedAtDesc(Long systemId, String status);
     
     long countByAlarmSystemIdAndStatus(Long systemId, String status);
@@ -38,4 +38,16 @@ public interface AlertLogRepository extends JpaRepository<AlertLog, Long> {
                                       @Param("to") LocalDateTime to,
                                       @Param("systemCode") String systemCode,
                                       @Param("status") String status);
+    
+    // ============================================================
+    // NEW: Get alerts by company (via system company)
+    // ============================================================
+    @Query("SELECT a FROM AlertLog a WHERE a.alarmSystem.company.id = :companyId ORDER BY a.receivedAt DESC")
+    List<AlertLog> findByCompanyId(@Param("companyId") Long companyId);
+    
+    @Query("SELECT a FROM AlertLog a WHERE a.alarmSystem.company.id = :companyId AND a.status = :status ORDER BY a.receivedAt DESC")
+    List<AlertLog> findByCompanyIdAndStatus(@Param("companyId") Long companyId, @Param("status") String status);
+    
+    @Query("SELECT COUNT(a) FROM AlertLog a WHERE a.alarmSystem.company.id = :companyId AND a.status = 'PENDING'")
+    long countPendingByCompanyId(@Param("companyId") Long companyId);
 }

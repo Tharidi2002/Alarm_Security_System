@@ -26,7 +26,7 @@ import {
 import ZoneManagement from './ZoneManagement';
 import CompanyManagement from './CompanyManagement';
 
-export default function AdminPanel({ isOpen, onClose }) {
+export default function AdminPanel({ isOpen, onClose, user }) {
   const [activeTab, setActiveTab] = useState('USERS');
   const [users, setUsers] = useState([]);
   const [systems, setSystems] = useState([]);
@@ -39,6 +39,7 @@ export default function AdminPanel({ isOpen, onClose }) {
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState('USER');
+  const [newCompanyId, setNewCompanyId] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
   // Assign states
@@ -94,7 +95,10 @@ export default function AdminPanel({ isOpen, onClose }) {
 
   const fetchLatestSystemCode = async () => {
     try {
-      const systemsData = await fetchSystems();
+      const systemsData = await fetchSystems(
+        user?.role === 'USER' ? user.companyId : null,
+        user?.username
+      );
       if (systemsData && systemsData.length > 0) {
         const z8bSystems = systemsData
           .filter(s => s.systemCode && s.systemCode.startsWith('ALARM-Z8B-'))
@@ -126,9 +130,9 @@ export default function AdminPanel({ isOpen, onClose }) {
     setError('');
     try {
       const [usersData, systemsData, companiesData] = await Promise.all([
-        fetchUsers(),
-        fetchSystems(),
-        fetchCompanies().catch(() => [])
+        fetchUsers(user?.role === 'USER' ? user.companyId : null, user?.username),
+        fetchSystems(user?.role === 'USER' ? user.companyId : null, user?.username),
+        fetchCompanies(user?.username).catch(() => [])
       ]);
       setUsers(usersData);
       setSystems(systemsData);
@@ -136,8 +140,9 @@ export default function AdminPanel({ isOpen, onClose }) {
       if (activeTab === 'SYSTEMS') {
         await fetchLatestSystemCode();
       }
-    } catch {
+    } catch (err) {
       setError('Failed to load data');
+      console.error('Load data error:', err);
     } finally {
       setLoading(false);
     }
@@ -154,7 +159,15 @@ export default function AdminPanel({ isOpen, onClose }) {
   // ========== USER MANAGEMENT ==========
   const handleCreateUser = async (e) => {
     e.preventDefault();
-    if (!newUsername.trim() || !newPassword.trim()) return;
+    if (!newUsername.trim() || !newPassword.trim()) {
+      setError('Username and password are required');
+      return;
+    }
+
+    if (newRole === 'USER' && !newCompanyId) {
+      setError('Please select a company for USER role');
+      return;
+    }
 
     setError('');
     setSuccess('');
@@ -162,12 +175,14 @@ export default function AdminPanel({ isOpen, onClose }) {
       await createUser({
         username: newUsername,
         password: newPassword,
-        role: newRole
+        role: newRole,
+        companyId: newCompanyId || null
       });
-      setSuccess('User registered successfully');
+      setSuccess('✅ User registered successfully');
       setNewUsername('');
       setNewPassword('');
       setNewRole('USER');
+      setNewCompanyId('');
       loadData();
     } catch (errorMsg) {
       setError(errorMsg.message || 'Failed to create user');
@@ -181,7 +196,7 @@ export default function AdminPanel({ isOpen, onClose }) {
     setSuccess('');
     try {
       await deleteUser(userId);
-      setSuccess(`User "${username}" deleted successfully`);
+      setSuccess(`✅ User "${username}" deleted successfully`);
       loadData();
     } catch (errorMsg) {
       setError(errorMsg.message || 'Failed to delete user');
@@ -208,7 +223,7 @@ export default function AdminPanel({ isOpen, onClose }) {
     setSuccess('');
     try {
       await assignSystems(selectedUser.id, userAssignedIds);
-      setSuccess(`Updated system access for ${selectedUser.username}`);
+      setSuccess(`✅ Updated system access for ${selectedUser.username}`);
       setSelectedUser(null);
       loadData();
     } catch (errorMsg) {
@@ -286,7 +301,22 @@ export default function AdminPanel({ isOpen, onClose }) {
         status: 'ACTIVE'
       };
 
-      const result = await createSystem(systemData, selectedCompanyId || null);
+      // For USER role, don't send companyId - backend will auto-detect from username
+      const companyIdToSend = user?.role === 'ADMIN' ? (selectedCompanyId || null) : null;
+      
+      console.log('Creating system with:', {
+        systemData,
+        companyId: companyIdToSend,
+        username: user?.username,
+        role: user?.role
+      });
+
+      const result = await createSystem(
+        systemData, 
+        companyIdToSend, 
+        user?.username
+      );
+      
       setSuccess(`✅ System created: ${result.systemCode}`);
       setLocation('');
       setDescription('');
@@ -325,15 +355,22 @@ export default function AdminPanel({ isOpen, onClose }) {
     setError('');
     setSuccess('');
     try {
-      await updateSystem(editingSystem.id, {
-        location: location.trim(),
-        description: description.trim(),
-        simNumber: simNumber.trim(),
-        panelSimNumber: panelSimNumber.trim() || simNumber.trim(),
-        disarmCommand: disarmCommand.trim() || '8888#2A',
-        armCommand: armCommand.trim() || '8888#1A',
-        status: editingSystem.status
-      }, selectedCompanyId !== '' ? selectedCompanyId : 0);
+      const companyIdToSend = user?.role === 'ADMIN' ? (selectedCompanyId || 0) : 0;
+      
+      await updateSystem(
+        editingSystem.id,
+        {
+          location: location.trim(),
+          description: description.trim(),
+          simNumber: simNumber.trim(),
+          panelSimNumber: panelSimNumber.trim() || simNumber.trim(),
+          disarmCommand: disarmCommand.trim() || '8888#2A',
+          armCommand: armCommand.trim() || '8888#1A',
+          status: editingSystem.status
+        },
+        companyIdToSend,
+        user?.username
+      );
       setSuccess(`✅ System ${editingSystem.systemCode} updated successfully`);
       setEditingSystem(null);
       setLocation('');
@@ -367,8 +404,8 @@ export default function AdminPanel({ isOpen, onClose }) {
     setSuccess('');
     const newStatus = system.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
     try {
-      await toggleSystemStatus(system.id, newStatus);
-      setSuccess(`System ${system.systemCode} is now ${newStatus}`);
+      await toggleSystemStatus(system.id, newStatus, user?.username);
+      setSuccess(`✅ System ${system.systemCode} is now ${newStatus}`);
       loadData();
     } catch (errorMsg) {
       setError(errorMsg.message || 'Failed to change status');
@@ -379,7 +416,7 @@ export default function AdminPanel({ isOpen, onClose }) {
     setError('');
     setSuccess('');
     try {
-      await sendSystemCommand(systemCode, command);
+      await sendSystemCommand(systemCode, command, user?.username);
       setSuccess(`✅ Command ${command} sent to system ${systemCode} successfully`);
       loadData();
     } catch (errorMsg) {
@@ -391,7 +428,7 @@ export default function AdminPanel({ isOpen, onClose }) {
     setError('');
     setSuccess('');
     try {
-      await stopSiren(systemCode, 'ADMIN');
+      await stopSiren(systemCode, user?.username || 'ADMIN', user?.username);
       setSuccess(`✅ Siren stopped for system ${systemCode}`);
       loadData();
     } catch (errorMsg) {
@@ -404,7 +441,7 @@ export default function AdminPanel({ isOpen, onClose }) {
     setError('');
     setSuccess('');
     try {
-      await deleteSystem(systemId);
+      await deleteSystem(systemId, user?.username);
       setSuccess(`✅ System ${systemCode} deleted successfully`);
       loadData();
       await fetchLatestSystemCode();
@@ -447,6 +484,9 @@ export default function AdminPanel({ isOpen, onClose }) {
 
   if (!isOpen) return null;
 
+  const isAdmin = user?.role === 'ADMIN';
+  const isUserRole = user?.role === 'USER';
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-end font-sans">
       <div 
@@ -460,7 +500,9 @@ export default function AdminPanel({ isOpen, onClose }) {
           <div className="flex justify-between items-center mb-4">
             <div className="flex items-center gap-2.5">
               <ShieldAlert className="w-5 h-5 text-red-500" />
-              <h2 className="text-lg font-bold uppercase tracking-wider text-white">System Access Control</h2>
+              <h2 className="text-lg font-bold uppercase tracking-wider text-white">
+                {isAdmin ? 'System Access Control' : 'Company Access Control'}
+              </h2>
             </div>
             <button 
               onClick={onClose}
@@ -470,17 +512,22 @@ export default function AdminPanel({ isOpen, onClose }) {
             </button>
           </div>
 
-          <div className="flex gap-2">
-            <button
-              onClick={() => { setActiveTab('USERS'); setError(''); setSuccess(''); }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono tracking-wider uppercase transition-all ${
-                activeTab === 'USERS' 
-                  ? 'bg-red-650 text-white border border-red-500 shadow-md shadow-red-500/10' 
-                  : 'bg-slate-950/50 hover:bg-slate-800 text-slate-400 border border-slate-800'
-              }`}
-            >
-              <Users className="w-4 h-4" /> Users Management
-            </button>
+          <div className="flex gap-2 flex-wrap">
+            {/* Users tab - Only for ADMIN */}
+            {isAdmin && (
+              <button
+                onClick={() => { setActiveTab('USERS'); setError(''); setSuccess(''); }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono tracking-wider uppercase transition-all ${
+                  activeTab === 'USERS' 
+                    ? 'bg-red-650 text-white border border-red-500 shadow-md shadow-red-500/10' 
+                    : 'bg-slate-950/50 hover:bg-slate-800 text-slate-400 border border-slate-800'
+                }`}
+              >
+                <Users className="w-4 h-4" /> Users Management
+              </button>
+            )}
+            
+            {/* Systems tab - For BOTH Admin and User */}
             <button
               onClick={() => { setActiveTab('SYSTEMS'); setError(''); setSuccess(''); }}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono tracking-wider uppercase transition-all ${
@@ -491,18 +538,29 @@ export default function AdminPanel({ isOpen, onClose }) {
             >
               <Cpu className="w-4 h-4" /> Systems / Devices
             </button>
-            {/* ===== NEW: COMPANIES TAB ===== */}
-            <button
-              onClick={() => { setActiveTab('COMPANIES'); setError(''); setSuccess(''); }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono tracking-wider uppercase transition-all ${
-                activeTab === 'COMPANIES' 
-                  ? 'bg-red-650 text-white border border-red-500 shadow-md shadow-red-500/10' 
-                  : 'bg-slate-950/50 hover:bg-slate-800 text-slate-400 border border-slate-800'
-              }`}
-            >
-              <Building className="w-4 h-4" /> Companies
-            </button>
+            
+            {/* Companies tab - Only for ADMIN */}
+            {isAdmin && (
+              <button
+                onClick={() => { setActiveTab('COMPANIES'); setError(''); setSuccess(''); }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono tracking-wider uppercase transition-all ${
+                  activeTab === 'COMPANIES' 
+                    ? 'bg-red-650 text-white border border-red-500 shadow-md shadow-red-500/10' 
+                    : 'bg-slate-950/50 hover:bg-slate-800 text-slate-400 border border-slate-800'
+                }`}
+              >
+                <Building className="w-4 h-4" /> Companies
+              </button>
+            )}
           </div>
+          
+          {/* Show company name for USER */}
+          {isUserRole && user?.companyName && (
+            <div className="mt-3 text-xs text-emerald-400 font-mono flex items-center gap-2">
+              <Building className="w-3.5 h-3.5" />
+              Managing Company: {user.companyName} {user.companyCode && `(${user.companyCode})`}
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -520,8 +578,8 @@ export default function AdminPanel({ isOpen, onClose }) {
             </div>
           )}
 
-          {/* ========== TAB 1: USERS MANAGEMENT ========== */}
-          {activeTab === 'USERS' && (
+          {/* ========== TAB 1: USERS MANAGEMENT (ADMIN ONLY) ========== */}
+          {activeTab === 'USERS' && isAdmin && (
             <>
               <div className="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-5 space-y-4">
                 <h3 className="text-sm font-bold tracking-wide uppercase text-white font-mono flex items-center gap-2">
@@ -574,6 +632,28 @@ export default function AdminPanel({ isOpen, onClose }) {
                     </select>
                   </div>
 
+                  {newRole === 'USER' && (
+                    <div className="col-span-1 sm:col-span-3 space-y-1.5">
+                      <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono flex items-center gap-2">
+                        <Building className="w-3.5 h-3.5 text-blue-400" />
+                        Company <span className="text-red-400">*</span>
+                      </label>
+                      <select
+                        value={newCompanyId}
+                        onChange={(e) => setNewCompanyId(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-red-500/50"
+                        required={newRole === 'USER'}
+                      >
+                        <option value="">-- Select Company --</option>
+                        {companies.map((comp) => (
+                          <option key={comp.id} value={comp.id}>
+                            {comp.companyCode} - {comp.companyName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   <button
                     type="submit"
                     className="col-span-1 sm:col-span-3 w-full bg-slate-800 hover:bg-red-650 hover:text-white border border-slate-700 hover:border-red-500 font-bold py-2 rounded-lg text-xs font-mono tracking-wider uppercase transition-all flex items-center justify-center gap-1.5"
@@ -596,14 +676,6 @@ export default function AdminPanel({ isOpen, onClose }) {
                         placeholder="Search users..."
                         className="bg-slate-800 border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-red-500/50 w-40"
                       />
-                      {userSearchQuery && (
-                        <button
-                          onClick={() => setUserSearchQuery('')}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
                     </div>
                     <button
                       onClick={loadData}
@@ -635,6 +707,11 @@ export default function AdminPanel({ isOpen, onClose }) {
                             }`}>
                               {u.role}
                             </span>
+                            {u.companyName && (
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20">
+                                {u.companyName}
+                              </span>
+                            )}
                           </div>
                           
                           {u.role === 'USER' && (
@@ -654,25 +731,23 @@ export default function AdminPanel({ isOpen, onClose }) {
 
                         <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
                           {u.role !== 'ADMIN' && (
-                            <button
-                              onClick={() => handleDeleteUser(u.id, u.username)}
-                              className="px-2 py-1.5 bg-red-500/10 hover:bg-red-650 text-red-400 hover:text-white border border-red-500/20 hover:border-red-500 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
-                              title="Delete user"
-                            >
-                              <Trash className="w-3.5 h-3.5" />
-                              Delete
-                            </button>
-                          )}
-                          
-                          {u.role !== 'ADMIN' && (
-                            <button
-                              onClick={() => openResetPasswordModal(u)}
-                              className="px-2 py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 hover:text-yellow-300 border border-yellow-500/30 hover:border-yellow-500/50 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
-                              title="Reset user password"
-                            >
-                              <Key className="w-3.5 h-3.5" />
-                              Reset
-                            </button>
+                            <>
+                              <button
+                                onClick={() => handleDeleteUser(u.id, u.username)}
+                                className="px-2 py-1.5 bg-red-500/10 hover:bg-red-650 text-red-400 hover:text-white border border-red-500/20 hover:border-red-500 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
+                                title="Delete user"
+                              >
+                                <Trash className="w-3.5 h-3.5" /> Delete
+                              </button>
+                              
+                              <button
+                                onClick={() => openResetPasswordModal(u)}
+                                className="px-2 py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 hover:text-yellow-300 border border-yellow-500/30 hover:border-yellow-500/50 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
+                                title="Reset user password"
+                              >
+                                <Key className="w-3.5 h-3.5" /> Reset
+                              </button>
+                            </>
                           )}
                           
                           {u.role === 'USER' && (
@@ -788,24 +863,45 @@ export default function AdminPanel({ isOpen, onClose }) {
                       required
                     />
                   </div>
-                  {/* Company Selection */}
+
+                  {/* ============================================================
+                      COMPANY SELECTION - FIXED FOR BOTH ADMIN AND USER
+                      ============================================================ */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono flex items-center gap-2">
                       <Building className="w-3.5 h-3.5 text-blue-400" />
-                      Company (Optional)
+                      Company
+                      {isUserRole && (
+                        <span className="text-emerald-400 text-[8px] font-normal">(Auto-set to your company)</span>
+                      )}
+                      {isAdmin && (
+                        <span className="text-slate-500 text-[8px] font-normal">(Optional)</span>
+                      )}
                     </label>
-                    <select
-                      value={selectedCompanyId}
-                      onChange={(e) => setSelectedCompanyId(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-red-500/50"
-                    >
-                      <option value="">-- No Company Assigned --</option>
-                      {companies.map((comp) => (
-                        <option key={comp.id} value={comp.id}>
-                          {comp.companyCode} - {comp.companyName}
-                        </option>
-                      ))}
-                    </select>
+                    
+                    {isAdmin ? (
+                      // ADMIN: Show dropdown to select any company
+                      <select
+                        value={selectedCompanyId}
+                        onChange={(e) => setSelectedCompanyId(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-red-500/50"
+                      >
+                        <option value="">-- No Company Assigned --</option>
+                        {companies.map((comp) => (
+                          <option key={comp.id} value={comp.id}>
+                            {comp.companyCode} - {comp.companyName}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      // USER: Show their company as read-only
+                      <div className="w-full bg-slate-950/50 border border-emerald-500/30 rounded-lg px-3 py-2 text-xs font-mono text-emerald-400 cursor-not-allowed">
+                        {user?.companyName || 'No company assigned'}
+                        {user?.companyCode && (
+                          <span className="text-slate-500 ml-2">({user.companyCode})</span>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Description */}
@@ -884,7 +980,9 @@ export default function AdminPanel({ isOpen, onClose }) {
               {/* Systems Directory */}
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <h3 className="text-sm font-bold tracking-wide uppercase text-white font-mono">Alarm Systems Directory</h3>
+                  <h3 className="text-sm font-bold tracking-wide uppercase text-white font-mono">
+                    {isUserRole ? 'Your Company Systems' : 'Alarm Systems Directory'}
+                  </h3>
                   <button
                     onClick={loadData}
                     className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors"
@@ -899,7 +997,10 @@ export default function AdminPanel({ isOpen, onClose }) {
                     <div className="p-6 text-center text-xs text-slate-500 font-mono">Loading systems directory...</div>
                   ) : systems.length === 0 ? (
                     <div className="p-6 text-center text-xs text-slate-500 font-mono">
-                      No systems registered. Create your first system above.
+                      {isUserRole 
+                        ? 'No systems registered for your company. Create your first system above.'
+                        : 'No systems registered. Create your first system above.'
+                      }
                     </div>
                   ) : (
                     systems.map((sys) => {
@@ -1026,9 +1127,28 @@ export default function AdminPanel({ isOpen, onClose }) {
             </>
           )}
 
-          {/* ========== TAB 3: COMPANIES MANAGEMENT ========== */}
-          {activeTab === 'COMPANIES' && (
-            <CompanyManagement isOpen={true} onClose={() => {}} />
+          {/* ========== TAB 3: COMPANIES MANAGEMENT (ADMIN ONLY) ========== */}
+          {activeTab === 'COMPANIES' && isAdmin && (
+            <CompanyManagement
+              isOpen={true}
+              onClose={() => {}}
+              username={user?.username}
+              userRole={user?.role}
+            />
+          )}
+          
+          {/* ========== USER sees message if Companies tab is not available ========== */}
+          {activeTab === 'COMPANIES' && !isAdmin && (
+            <div className="text-center py-12">
+              <Building className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+              <h3 className="text-lg font-bold text-white">Access Restricted</h3>
+              <p className="text-sm text-slate-400 mt-2">
+                Companies can only be managed by Administrators.
+              </p>
+              <p className="text-xs text-slate-500 mt-1 font-mono">
+                Your company: {user?.companyName || 'Not assigned'}
+              </p>
+            </div>
           )}
         </div>
       </div>
@@ -1212,4 +1332,11 @@ export default function AdminPanel({ isOpen, onClose }) {
 AdminPanel.propTypes = {
   isOpen: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
+  user: PropTypes.shape({
+    username: PropTypes.string,
+    role: PropTypes.string,
+    companyId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    companyName: PropTypes.string,
+    companyCode: PropTypes.string,
+  }),
 };

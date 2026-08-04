@@ -9,13 +9,14 @@ import com.security.alarm.repository.AlarmSystemRepository;
 import com.security.alarm.repository.UserRepository;
 import com.security.alarm.repository.UserSystemRepository;
 import com.security.alarm.service.ReportService;
+import com.security.alarm.service.PermissionService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -32,22 +33,26 @@ public class ReportController {
     private final UserSystemRepository userSystemRepository;
     private final AlarmSystemRepository alarmSystemRepository;
     private final AlertLogRepository alertLogRepository;
+    private final PermissionService permissionService;
 
     public ReportController(ReportService reportService,
                             UserRepository userRepository,
                             UserSystemRepository userSystemRepository,
                             AlarmSystemRepository alarmSystemRepository,
-                            AlertLogRepository alertLogRepository) {
+                            AlertLogRepository alertLogRepository,
+                            PermissionService permissionService) {
         this.reportService = reportService;
         this.userRepository = userRepository;
         this.userSystemRepository = userSystemRepository;
         this.alarmSystemRepository = alarmSystemRepository;
         this.alertLogRepository = alertLogRepository;
+        this.permissionService = permissionService;
     }
 
     // ============================================================
-    // 1. SUMMARY REPORT
+    // 1. SUMMARY REPORT - COMPANY-BASED
     // ============================================================
+    
     @GetMapping("/summary")
     public ResponseEntity<?> getSummary(
             @RequestParam(required = false) String from,
@@ -73,8 +78,9 @@ public class ReportController {
     }
 
     // ============================================================
-    // 2. DETAILED REPORT - Full Alert List
+    // 2. DETAILED REPORT - COMPANY-BASED
     // ============================================================
+    
     @GetMapping("/detailed")
     public ResponseEntity<?> getDetailed(
             @RequestParam(required = false) String from,
@@ -88,7 +94,6 @@ public class ReportController {
         
         List<AlertLog> alerts = getAlerts(fromDate, toDate, username, systemCode);
         
-        // Filter by status if provided
         if (status != null && !status.trim().isEmpty()) {
             alerts = alerts.stream()
                 .filter(a -> status.equalsIgnoreCase(a.getStatus()))
@@ -99,8 +104,9 @@ public class ReportController {
     }
 
     // ============================================================
-    // 3. SYSTEM HEALTH
+    // 3. SYSTEM HEALTH - COMPANY-BASED
     // ============================================================
+    
     @GetMapping("/health")
     public ResponseEntity<?> getSystemHealth(@RequestParam(required = false) String username) {
         List<AlarmSystem> systems;
@@ -108,17 +114,16 @@ public class ReportController {
         if (username != null && !username.trim().isEmpty()) {
             Optional<User> userOpt = userRepository.findByUsername(username);
             if (userOpt.isPresent() && "USER".equalsIgnoreCase(userOpt.get().getRole())) {
-                List<UserSystem> userSystems = userSystemRepository.findAllByUserId(userOpt.get().getId());
-                List<Long> systemIds = new ArrayList<>();
-                for (UserSystem us : userSystems) {
-                    systemIds.add(us.getSystemId());
-                }
-                if (!systemIds.isEmpty()) {
-                    systems = alarmSystemRepository.findAllById(systemIds);
+                // USER - get only their company systems
+                Long companyId = userOpt.get().getCompany() != null ? 
+                    userOpt.get().getCompany().getId() : null;
+                if (companyId != null) {
+                    systems = alarmSystemRepository.findByCompanyId(companyId);
                 } else {
                     systems = new ArrayList<>();
                 }
             } else {
+                // Admin - all systems
                 systems = alarmSystemRepository.findAll();
             }
         } else {
@@ -130,8 +135,9 @@ public class ReportController {
     }
 
     // ============================================================
-    // 4. USER PERFORMANCE
+    // 4. USER PERFORMANCE - COMPANY-BASED
     // ============================================================
+    
     @GetMapping("/performance")
     public ResponseEntity<?> getUserPerformance(
             @RequestParam(required = false) String from,
@@ -143,7 +149,6 @@ public class ReportController {
         
         List<AlertLog> alerts = getAlerts(fromDate, toDate, username, null);
         
-        // Group by resolved_by
         Map<String, Long> performance = new java.util.LinkedHashMap<>();
         alerts.stream()
             .filter(a -> "RESOLVED".equals(a.getStatus()) && a.getResolvedBy() != null)
@@ -152,7 +157,6 @@ public class ReportController {
                 performance.put(key, performance.getOrDefault(key, 0L) + 1);
             });
         
-        // Calculate average resolution time per user
         Map<String, Double> avgTime = new java.util.LinkedHashMap<>();
         alerts.stream()
             .filter(a -> "RESOLVED".equals(a.getStatus()) && a.getResolvedBy() != null && a.getPendingDurationSeconds() != null)
@@ -173,8 +177,9 @@ public class ReportController {
     }
 
     // ============================================================
-    // 5. EXPORT PDF
+    // 5. EXPORT PDF - COMPANY-BASED
     // ============================================================
+    
     @GetMapping("/export/pdf")
     public ResponseEntity<byte[]> exportPDF(
             @RequestParam(required = false) String from,
@@ -217,8 +222,9 @@ public class ReportController {
     }
 
     // ============================================================
-    // 6. EXPORT EXCEL
+    // 6. EXPORT EXCEL - COMPANY-BASED
     // ============================================================
+    
     @GetMapping("/export/excel")
     public ResponseEntity<byte[]> exportExcel(
             @RequestParam(required = false) String from,
@@ -257,8 +263,9 @@ public class ReportController {
     }
 
     // ============================================================
-    // 7. GET SYSTEMS LIST
+    // 7. GET SYSTEMS LIST - COMPANY-BASED
     // ============================================================
+    
     @GetMapping("/systems")
     public ResponseEntity<?> getSystems(@RequestParam(required = false) String username) {
         List<AlarmSystem> systems;
@@ -266,13 +273,11 @@ public class ReportController {
         if (username != null && !username.trim().isEmpty()) {
             Optional<User> userOpt = userRepository.findByUsername(username);
             if (userOpt.isPresent() && "USER".equalsIgnoreCase(userOpt.get().getRole())) {
-                List<UserSystem> userSystems = userSystemRepository.findAllByUserId(userOpt.get().getId());
-                List<Long> systemIds = new ArrayList<>();
-                for (UserSystem us : userSystems) {
-                    systemIds.add(us.getSystemId());
-                }
-                if (!systemIds.isEmpty()) {
-                    systems = alarmSystemRepository.findAllById(systemIds);
+                // USER - get only their company systems
+                Long companyId = userOpt.get().getCompany() != null ? 
+                    userOpt.get().getCompany().getId() : null;
+                if (companyId != null) {
+                    systems = alarmSystemRepository.findByCompanyId(companyId);
                 } else {
                     systems = new ArrayList<>();
                 }
@@ -287,8 +292,9 @@ public class ReportController {
     }
 
     // ============================================================
-    // HELPER: Get Alerts
+    // HELPER: Get Alerts - COMPANY-BASED
     // ============================================================
+    
     private List<AlertLog> getAlerts(LocalDateTime fromDate, LocalDateTime toDate, 
                                      String username, String systemCode) {
         List<AlertLog> alerts;
@@ -296,13 +302,19 @@ public class ReportController {
         if (username != null && !username.trim().isEmpty()) {
             Optional<User> userOpt = userRepository.findByUsername(username);
             if (userOpt.isPresent() && "USER".equalsIgnoreCase(userOpt.get().getRole())) {
-                List<UserSystem> userSystems = userSystemRepository.findAllByUserId(userOpt.get().getId());
-                List<Long> systemIds = new ArrayList<>();
-                for (UserSystem us : userSystems) {
-                    systemIds.add(us.getSystemId());
-                }
-                if (!systemIds.isEmpty()) {
-                    alerts = alertLogRepository.findByAlarmSystemIdInAndReceivedAtBetween(systemIds, fromDate, toDate);
+                // USER - get only their company alerts
+                Long companyId = userOpt.get().getCompany() != null ? 
+                    userOpt.get().getCompany().getId() : null;
+                if (companyId != null) {
+                    List<AlarmSystem> systems = alarmSystemRepository.findByCompanyId(companyId);
+                    List<Long> systemIds = systems.stream()
+                        .map(AlarmSystem::getId)
+                        .collect(java.util.stream.Collectors.toList());
+                    if (!systemIds.isEmpty()) {
+                        alerts = alertLogRepository.findByAlarmSystemIdInAndReceivedAtBetween(systemIds, fromDate, toDate);
+                    } else {
+                        alerts = new ArrayList<>();
+                    }
                 } else {
                     alerts = new ArrayList<>();
                 }
@@ -324,8 +336,9 @@ public class ReportController {
     }
 
     // ============================================================
-    // HELPER: Parse Date with Local Timezone
+    // HELPER: Parse Date
     // ============================================================
+    
     private LocalDateTime parseDate(String dateStr) {
         if (dateStr == null || dateStr.trim().isEmpty()) {
             return LocalDateTime.now().minusDays(30);

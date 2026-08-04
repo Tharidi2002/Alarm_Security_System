@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Shield, User, Lock, Eye, EyeOff, AlertCircle, CheckCircle, ArrowLeft, Key, Unlock } from 'lucide-react';
+import { Shield, User, Lock, Eye, EyeOff, AlertCircle, CheckCircle, ArrowLeft, Key, Unlock, Building } from 'lucide-react';
 import PropTypes from 'prop-types';
+import { fetchCompanies } from '../services/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 
@@ -10,7 +11,8 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
     password: '',
     confirmPassword: '',
     role: 'ADMIN',
-    secretCode: ''
+    secretCode: '',
+    companyId: '' // NEW
   });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -22,6 +24,10 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
   const [adminCount, setAdminCount] = useState(0);
   const [unlocked, setUnlocked] = useState(isUnlocked);
   const [checkingAdmin, setCheckingAdmin] = useState(true);
+  
+  // NEW: Companies list for dropdown
+  const [companies, setCompanies] = useState([]);
+  const [loadingCompanies, setLoadingCompanies] = useState(false);
 
   useEffect(() => {
     const checkAdmin = async () => {
@@ -49,6 +55,26 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
     checkAdmin();
   }, [isUnlocked]);
 
+  // NEW: Load companies when user selects USER role
+  useEffect(() => {
+    if (formData.role === 'USER') {
+      loadCompanies();
+    }
+  }, [formData.role]);
+
+  const loadCompanies = async () => {
+    setLoadingCompanies(true);
+    try {
+      const data = await fetchCompanies();
+      setCompanies(data || []);
+    } catch (error) {
+      console.error('Error loading companies:', error);
+      setCompanies([]);
+    } finally {
+      setLoadingCompanies(false);
+    }
+  };
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -60,7 +86,7 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
     setError('');
     setSuccess('');
 
-    const { username, password, confirmPassword, role, secretCode } = formData;
+    const { username, password, confirmPassword, role, secretCode, companyId } = formData;
 
     if (!username.trim()) {
       setError('Username is required');
@@ -87,6 +113,14 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
       return;
     }
 
+    // NEW: Validate company for USER role
+    if (role === 'USER') {
+      if (!companyId || companyId === '') {
+        setError('Please select a company');
+        return;
+      }
+    }
+
     if (role === 'ADMIN' && hasAdmin) {
       if (!secretCode.trim()) {
         setError('Secret code is required to register as Admin');
@@ -107,7 +141,8 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
           password,
           confirmPassword,
           role,
-          secretCode: secretCode.trim()
+          secretCode: secretCode.trim(),
+          companyId: companyId // NEW
         }),
       });
 
@@ -121,27 +156,25 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
           }
           throw new Error(data);
         } catch (parseError) {
-          throw new Error(data || 'Registration failed');
+          throw new Error(parseError.message || data || 'Registration failed');
         }
       }
 
       setSuccess('✅ Registration successful! Redirecting to login...');
-      
       setFormData({
         username: '',
         password: '',
         confirmPassword: '',
         role: 'ADMIN',
-        secretCode: ''
+        secretCode: '',
+        companyId: ''
       });
-
       localStorage.setItem('registerSuccess', '✅ Registration successful! You can now login.');
 
       setTimeout(() => {
         if (onRegisterSuccess) onRegisterSuccess();
         if (onBackToLogin) onBackToLogin();
       }, 2000);
-
     } catch (err) {
       setError(err.message || 'Registration failed. Please try again.');
     } finally {
@@ -299,6 +332,39 @@ export default function Register({ onBackToLogin, isUnlocked = false, onRegister
               </button>
             </div>
           </div>
+
+          {/* NEW: Company Selection for USER role */}
+          {formData.role === 'USER' && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold tracking-wide uppercase text-slate-400 font-mono flex items-center gap-2">
+                <Building className="w-3.5 h-3.5 text-blue-400" />
+                Company <span className="text-red-400">*</span>
+              </label>
+              <select
+                name="companyId"
+                value={formData.companyId}
+                onChange={handleChange}
+                className="w-full bg-slate-950 border border-slate-800/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all font-mono"
+                required
+              >
+                <option value="">-- Select Company --</option>
+                {loadingCompanies ? (
+                  <option value="" disabled>Loading companies...</option>
+                ) : (
+                  companies.map((company) => (
+                    <option key={company.id} value={company.id}>
+                      {company.companyCode} - {company.companyName}
+                    </option>
+                  ))
+                )}
+              </select>
+              {companies.length === 0 && !loadingCompanies && (
+                <p className="text-[10px] text-yellow-400 font-mono">
+                  ⚠️ No companies available. Please contact Admin to create a company.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <label className="text-xs font-bold tracking-wide uppercase text-slate-400 font-mono">

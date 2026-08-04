@@ -5,11 +5,14 @@ import com.security.alarm.entity.UserSystem;
 import com.security.alarm.entity.AlarmSystem;
 import com.security.alarm.entity.Company;
 import com.security.alarm.entity.RegistrationAuditLog;
+import com.security.alarm.entity.AlarmZone;
 import com.security.alarm.repository.UserRepository;
 import com.security.alarm.repository.UserSystemRepository;
 import com.security.alarm.repository.AlarmSystemRepository;
 import com.security.alarm.repository.CompanyRepository;
 import com.security.alarm.repository.RegistrationAuditLogRepository;
+import com.security.alarm.repository.AlarmZoneRepository;
+import com.security.alarm.service.PermissionService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
@@ -21,8 +24,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import com.security.alarm.entity.AlarmZone;
-import com.security.alarm.repository.AlarmZoneRepository;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -36,6 +37,7 @@ public class AdminController {
     private final PasswordEncoder passwordEncoder;
     private final AlarmZoneRepository alarmZoneRepository;
     private final RegistrationAuditLogRepository auditLogRepository;
+    private final PermissionService permissionService;
 
     public AdminController(UserRepository userRepository,
                         UserSystemRepository userSystemRepository,
@@ -43,7 +45,8 @@ public class AdminController {
                         CompanyRepository companyRepository,
                         PasswordEncoder passwordEncoder,
                         AlarmZoneRepository alarmZoneRepository,
-                        RegistrationAuditLogRepository auditLogRepository) {
+                        RegistrationAuditLogRepository auditLogRepository,
+                        PermissionService permissionService) {
         this.userRepository = userRepository;
         this.userSystemRepository = userSystemRepository;
         this.alarmSystemRepository = alarmSystemRepository;
@@ -51,11 +54,61 @@ public class AdminController {
         this.passwordEncoder = passwordEncoder;
         this.alarmZoneRepository = alarmZoneRepository;
         this.auditLogRepository = auditLogRepository;
+        this.permissionService = permissionService;
     }
 
-    // ========== USER MANAGEMENT ==========
+    // ============================================================
+    // GET CURRENT USER INFO
+    // ============================================================
+    
+    @GetMapping("/me")
+    public ResponseEntity<?> getCurrentUser(@RequestParam String username) {
+        Optional<User> userOpt = userRepository.findByUsername(username);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        User user = userOpt.get();
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("id", user.getId());
+        response.put("username", user.getUsername());
+        response.put("role", user.getRole());
+        
+        if (user.getCompany() != null) {
+            response.put("companyId", user.getCompany().getId());
+            response.put("companyName", user.getCompany().getCompanyName());
+            response.put("companyCode", user.getCompany().getCompanyCode());
+        }
+        
+        if ("USER".equalsIgnoreCase(user.getRole())) {
+            List<AlarmSystem> systems = permissionService.getAccessibleSystems(username);
+            response.put("systems", systems.stream().map(s -> {
+                Map<String, Object> sys = new HashMap<>();
+                sys.put("id", s.getId());
+                sys.put("systemCode", s.getSystemCode());
+                return sys;
+            }).collect(Collectors.toList()));
+        }
+        
+        return ResponseEntity.ok(response);
+    }
+
+    // ============================================================
+    // USER MANAGEMENT
+    // ============================================================
+
     @GetMapping("/users")
-    public ResponseEntity<List<Map<String, Object>>> getUsers(@RequestParam(required = false) Long companyId) {
+    public ResponseEntity<?> getUsers(@RequestParam(required = false) Long companyId,
+                                      @RequestParam(required = false) String username) {
+        if (username != null && !username.isEmpty() && permissionService.isUser(username)) {
+            Long userCompanyId = permissionService.getUserCompanyId(username);
+            if (userCompanyId == null) {
+                return ResponseEntity.badRequest().body("User has no company assigned");
+            }
+            List<User> users = userRepository.findByCompanyId(userCompanyId);
+            return ResponseEntity.ok(formatUsers(users));
+        }
+        
         List<User> users;
         if (companyId != null && companyId > 0) {
             users = userRepository.findByCompanyId(companyId);
@@ -63,17 +116,20 @@ public class AdminController {
             users = userRepository.findAll();
         }
         
+        return ResponseEntity.ok(formatUsers(users));
+    }
+
+    private List<Map<String, Object>> formatUsers(List<User> users) {
         Optional<User> firstAdmin = userRepository.findFirstByRoleOrderByIdAsc("ADMIN");
         Long firstAdminId = firstAdmin.map(User::getId).orElse(null);
         
-        List<Map<String, Object>> response = users.stream().map(u -> {
+        return users.stream().map(u -> {
             Map<String, Object> map = new HashMap<>();
             map.put("id", u.getId());
             map.put("username", u.getUsername());
             map.put("role", u.getRole());
             map.put("isFirstAdmin", u.getId().equals(firstAdminId));
             
-            // Company info
             if (u.getCompany() != null) {
                 map.put("companyId", u.getCompany().getId());
                 map.put("companyName", u.getCompany().getCompanyName());
@@ -93,37 +149,118 @@ public class AdminController {
             map.put("assignedSystems", assigned);
             return map;
         }).collect(Collectors.toList());
-        
-        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/users")
-    public ResponseEntity<?> createUser(@RequestBody User newUser, HttpServletRequest request) {
-        if (newUser.getUsername() == null || newUser.getPassword() == null || newUser.getRole() == null) {
+    public ResponseEntity<?> createUser(@RequestBody Map<String, Object> request, HttpServletRequest httpRequest) {
+        String username = (String) request.get("username");
+        String password = (String) request.get("password");
+        String role = (String) request.get("role");
+        Long companyId = request.get("companyId") != null ? 
+            Long.valueOf(request.get("companyId").toString()) : null;
+        
+        if (username == null || password == null || role == null) {
             return ResponseEntity.badRequest().body("Username, password and role are required");
         }
-        if (userRepository.findByUsername(newUser.getUsername()).isPresent()) {
+        
+        if (userRepository.findByUsername(username).isPresent()) {
             return ResponseEntity.badRequest().body("Username already exists");
         }
         
-        newUser.setPassword(passwordEncoder.encode(newUser.getPassword()));
+        if ("USER".equalsIgnoreCase(role) && (companyId == null || companyId == 0)) {
+            return ResponseEntity.badRequest().body("Company is required for USER role");
+        }
+        
+        Company company = null;
+        if (companyId != null && companyId > 0) {
+            Optional<Company> companyOpt = companyRepository.findById(companyId);
+            if (companyOpt.isEmpty()) {
+                return ResponseEntity.badRequest().body("Company not found");
+            }
+            company = companyOpt.get();
+        }
+        
+        User newUser = new User();
+        newUser.setUsername(username);
+        newUser.setPassword(passwordEncoder.encode(password));
+        newUser.setRole(role.toUpperCase());
+        newUser.setCompany(company);
+        
         User saved = userRepository.save(newUser);
         
-        // ===== AUDIT LOG =====
-        String clientIp = getClientIp(request);
+        String clientIp = getClientIp(httpRequest);
         RegistrationAuditLog log = new RegistrationAuditLog();
-        log.setUsername(newUser.getUsername());
-        log.setRole(newUser.getRole());
-        log.setRegisteredBy("ADMIN:admin");
+        log.setUsername(username);
+        log.setRole(role);
+        log.setRegisteredBy("ADMIN:" + (httpRequest.getParameter("adminUsername") != null ? 
+            httpRequest.getParameter("adminUsername") : "admin"));
         log.setRegisteredFromIp(clientIp);
         log.setMethod("ADMIN_PANEL");
-        log.setNotes("User created by admin");
+        log.setNotes("User created by admin with company: " + (company != null ? company.getCompanyName() : "None"));
         auditLogRepository.save(log);
         
         return ResponseEntity.ok(saved);
     }
 
-    // ========== SYSTEM MANAGEMENT ==========
+    @DeleteMapping("/users/{id}")
+    public ResponseEntity<?> deleteUser(@PathVariable Long id) {
+        if (!userRepository.existsById(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        userRepository.deleteById(id);
+        return ResponseEntity.ok("User deleted successfully");
+    }
+
+    @PutMapping("/users/{id}/reset-password")
+    public ResponseEntity<?> resetUserPassword(@PathVariable Long id, @RequestBody Map<String, String> request) {
+        Optional<User> userOpt = userRepository.findById(id);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        String newPassword = request.get("newPassword");
+        if (newPassword == null || newPassword.length() < 6) {
+            return ResponseEntity.badRequest().body("Password must be at least 6 characters");
+        }
+        
+        User user = userOpt.get();
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("id", user.getId());
+        response.put("username", user.getUsername());
+        response.put("message", "Password reset successfully");
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/users/{id}/assign")
+    public ResponseEntity<?> assignSystems(@PathVariable Long id, @RequestBody Map<String, List<Long>> request) {
+        if (!userRepository.existsById(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        List<Long> systemIds = request.get("systemIds");
+        if (systemIds == null) {
+            return ResponseEntity.badRequest().body("systemIds is required");
+        }
+        
+        userSystemRepository.deleteByUserId(id);
+        
+        for (Long systemId : systemIds) {
+            UserSystem us = new UserSystem();
+            us.setUserId(id);
+            us.setSystemId(systemId);
+            userSystemRepository.save(us);
+        }
+        
+        return ResponseEntity.ok("Systems assigned successfully");
+    }
+
+    // ============================================================
+    // SYSTEM MANAGEMENT
+    // ============================================================
+
     private String generateNextSystemCode() {
         Optional<String> latestCodeOpt = alarmSystemRepository.findLatestSystemCode();
         if (latestCodeOpt.isEmpty()) {
@@ -142,18 +279,38 @@ public class AdminController {
     }
 
     @GetMapping("/systems")
-    public ResponseEntity<List<AlarmSystem>> getSystems(@RequestParam(required = false) Long companyId) {
+    public ResponseEntity<?> getSystems(@RequestParam(required = false) Long companyId,
+                                        @RequestParam(required = false) String username) {
+        System.out.println("DEBUG: getSystems called with username: " + username + ", companyId: " + companyId);
+        
+        // If USER, return only their company systems
+        if (username != null && !username.isEmpty() && permissionService.isUser(username)) {
+            Long userCompanyId = permissionService.getUserCompanyId(username);
+            System.out.println("DEBUG: User company ID: " + userCompanyId);
+            if (userCompanyId == null) {
+                return ResponseEntity.badRequest().body("User has no company assigned");
+            }
+            List<AlarmSystem> systems = alarmSystemRepository.findByCompanyId(userCompanyId);
+            System.out.println("DEBUG: Found " + systems.size() + " systems for user's company");
+            return ResponseEntity.ok(systems);
+        }
+        
+        // Admin - all systems or filter by company
         List<AlarmSystem> systems;
         if (companyId != null && companyId > 0) {
             systems = alarmSystemRepository.findByCompanyId(companyId);
         } else {
             systems = alarmSystemRepository.findAll();
         }
+        System.out.println("DEBUG: Found " + systems.size() + " systems total");
         return ResponseEntity.ok(systems);
     }
 
     @PostMapping("/systems")
-    public ResponseEntity<?> createSystem(@RequestBody AlarmSystem system, @RequestParam(required = false) Long companyId) {
+    public ResponseEntity<?> createSystem(@RequestBody AlarmSystem system,
+                                          @RequestParam(required = false) Long companyId,
+                                          @RequestParam(required = false) String username) {
+        // Check system limit
         if (alarmSystemRepository.count() >= 5) {
             return ResponseEntity.badRequest().body("System registration limit reached. A maximum of 5 systems can be registered.");
         }
@@ -169,6 +326,59 @@ public class AdminController {
             return ResponseEntity.badRequest().body("SIM number already registered to another system");
         }
 
+        // ============================================================
+        // DETERMINE COMPANY ID
+        // ============================================================
+        Long targetCompanyId = null;
+        
+        // 1. If companyId is passed as parameter, use it
+        if (companyId != null && companyId > 0) {
+            targetCompanyId = companyId;
+        }
+        
+        // 2. If username is provided, check user's role
+        if (username != null && !username.isEmpty()) {
+            User user = permissionService.getUser(username);
+            if (user != null) {
+                // If user is USER role, force their company
+                if ("USER".equalsIgnoreCase(user.getRole())) {
+                    if (user.getCompany() == null) {
+                        return ResponseEntity.badRequest().body("User has no company assigned. Cannot create system.");
+                    }
+                    targetCompanyId = user.getCompany().getId();
+                    System.out.println("DEBUG: USER role - forcing company ID: " + targetCompanyId);
+                } else if ("ADMIN".equalsIgnoreCase(user.getRole())) {
+                    // Admin can override with companyId from request body
+                    if (system.getCompany() != null && system.getCompany().getId() != null) {
+                        targetCompanyId = system.getCompany().getId();
+                    }
+                    System.out.println("DEBUG: ADMIN role - using company ID: " + targetCompanyId);
+                }
+            }
+        }
+        
+        // 3. If still null, try from system object
+        if (targetCompanyId == null && system.getCompany() != null && system.getCompany().getId() != null) {
+            targetCompanyId = system.getCompany().getId();
+        }
+
+        // ============================================================
+        // GET COMPANY ENTITY
+        // ============================================================
+        Company company = null;
+        if (targetCompanyId != null && targetCompanyId > 0) {
+            Optional<Company> companyOpt = companyRepository.findById(targetCompanyId);
+            if (companyOpt.isPresent()) {
+                company = companyOpt.get();
+                System.out.println("DEBUG: Company found: " + company.getCompanyName() + " (ID: " + company.getId() + ")");
+            } else {
+                return ResponseEntity.badRequest().body("Company not found with ID: " + targetCompanyId);
+            }
+        } else {
+            System.out.println("DEBUG: No company assigned to this system");
+        }
+
+        // Generate system code
         String newSystemCode = generateNextSystemCode();
         int counter = 0;
         while (alarmSystemRepository.findBySystemCode(newSystemCode).isPresent() && counter < 100) {
@@ -186,6 +396,9 @@ public class AdminController {
             counter++;
         }
 
+        // ============================================================
+        // CREATE SYSTEM
+        // ============================================================
         AlarmSystem newSystem = new AlarmSystem();
         newSystem.setSystemCode(newSystemCode);
         newSystem.setLocation(system.getLocation().trim());
@@ -194,14 +407,8 @@ public class AdminController {
         newSystem.setStatus(system.getStatus() != null ? system.getStatus() : "ACTIVE");
         newSystem.setLastStatusChangedAt(LocalDateTime.now());
         
-        // ===== Set company =====
-        Long targetCompanyId = companyId;
-        if (targetCompanyId == null && system.getCompany() != null && system.getCompany().getId() != null) {
-            targetCompanyId = system.getCompany().getId();
-        }
-        if (targetCompanyId != null && targetCompanyId > 0) {
-            companyRepository.findById(targetCompanyId).ifPresent(newSystem::setCompany);
-        }
+        // CRITICAL: Set the company
+        newSystem.setCompany(company);
         
         newSystem.setPanelSimNumber(system.getSimNumber().trim());
         newSystem.setPanelPassword("8888");
@@ -212,14 +419,27 @@ public class AdminController {
 
         AlarmSystem saved = alarmSystemRepository.save(newSystem);
         createDefaultZones(saved);
+        
+        System.out.println("✅ System created: " + newSystemCode + 
+                           " with company: " + (company != null ? company.getCompanyName() + " (ID: " + company.getId() + ")" : "NULL"));
+        
         return ResponseEntity.ok(saved);
     }
 
     @PutMapping("/systems/{id}")
-    public ResponseEntity<?> updateSystem(@PathVariable Long id, @RequestBody AlarmSystem systemDetails, @RequestParam(required = false) Long companyId) {
+    public ResponseEntity<?> updateSystem(@PathVariable Long id,
+                                          @RequestBody AlarmSystem systemDetails,
+                                          @RequestParam(required = false) Long companyId,
+                                          @RequestParam(required = false) String username) {
         Optional<AlarmSystem> opt = alarmSystemRepository.findById(id);
         if (opt.isEmpty()) {
             return ResponseEntity.notFound().build();
+        }
+
+        if (username != null && !username.isEmpty()) {
+            if (!permissionService.canManageSystem(username, id)) {
+                return ResponseEntity.status(403).body("Access denied: You can only manage systems in your company");
+            }
         }
 
         AlarmSystem system = opt.get();
@@ -246,15 +466,18 @@ public class AdminController {
             system.setStatus(systemDetails.getStatus());
         }
 
-        Long targetCompanyId = companyId;
-        if (targetCompanyId == null && systemDetails.getCompany() != null) {
-            targetCompanyId = systemDetails.getCompany().getId();
-        }
-        if (targetCompanyId != null) {
-            if (targetCompanyId > 0) {
-                companyRepository.findById(targetCompanyId).ifPresent(system::setCompany);
-            } else {
-                system.setCompany(null);
+        // Only Admin can change company
+        if (username == null || !username.isEmpty() && permissionService.isAdmin(username)) {
+            Long targetCompanyId = companyId;
+            if (targetCompanyId == null && systemDetails.getCompany() != null) {
+                targetCompanyId = systemDetails.getCompany().getId();
+            }
+            if (targetCompanyId != null) {
+                if (targetCompanyId > 0) {
+                    companyRepository.findById(targetCompanyId).ifPresent(system::setCompany);
+                } else {
+                    system.setCompany(null);
+                }
             }
         }
 
@@ -263,11 +486,20 @@ public class AdminController {
     }
 
     @PatchMapping("/systems/{id}/status")
-    public ResponseEntity<?> toggleSystemStatus(@PathVariable Long id, @RequestBody Map<String, String> body) {
+    public ResponseEntity<?> toggleSystemStatus(@PathVariable Long id,
+                                                @RequestBody Map<String, String> body,
+                                                @RequestParam(required = false) String username) {
         Optional<AlarmSystem> opt = alarmSystemRepository.findById(id);
         if (opt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
+        
+        if (username != null && !username.isEmpty()) {
+            if (!permissionService.canManageSystem(username, id)) {
+                return ResponseEntity.status(403).body("Access denied");
+            }
+        }
+        
         AlarmSystem system = opt.get();
         String newStatus = body.get("status");
         if (newStatus != null) {
@@ -279,10 +511,18 @@ public class AdminController {
     }
 
     @DeleteMapping("/systems/{id}")
-    public ResponseEntity<?> deleteSystem(@PathVariable Long id) {
+    public ResponseEntity<?> deleteSystem(@PathVariable Long id,
+                                          @RequestParam(required = false) String username) {
         if (!alarmSystemRepository.existsById(id)) {
             return ResponseEntity.notFound().build();
         }
+        
+        if (username != null && !username.isEmpty()) {
+            if (!permissionService.canManageSystem(username, id)) {
+                return ResponseEntity.status(403).body("Access denied: You can only delete systems in your company");
+            }
+        }
+        
         alarmSystemRepository.deleteById(id);
         return ResponseEntity.ok("System deleted successfully");
     }
@@ -325,7 +565,10 @@ public class AdminController {
         }
     }
 
-    // ===== HELPER: Get Client IP =====
+    // ============================================================
+    // HELPER: Get Client IP
+    // ============================================================
+    
     private String getClientIp(HttpServletRequest request) {
         String ip = request.getHeader("X-Forwarded-For");
         if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
