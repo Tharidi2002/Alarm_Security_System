@@ -9,7 +9,7 @@ import {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 
-export default function CompanyManagement({ isOpen, onClose, username, userRole }) {
+export default function CompanyManagement({ isOpen, onClose, username, userRole, companyId }) {
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -252,7 +252,12 @@ export default function CompanyManagement({ isOpen, onClose, username, userRole 
     setShowEditModal(true);
   };
 
-  const filteredCompanies = companies.filter(c =>
+  // If userRole is USER, restrict to their companyId if provided
+  const baseCompanies = (userRole === 'USER' && companyId)
+    ? (companies || []).filter(c => String(c.id) === String(companyId))
+    : (companies || []);
+
+  const filteredCompanies = baseCompanies.filter(c =>
     c.companyName.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.companyCode.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -809,4 +814,5 @@ CompanyManagement.propTypes = {
   onClose: PropTypes.func.isRequired,
   username: PropTypes.string,
   userRole: PropTypes.string,
+  companyId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
 };

@@ -121,7 +121,29 @@ public class PermissionService {
     }
 
     public boolean canManageSystem(String username, Long systemId) {
-        return canAccessSystem(username, systemId);
+        // Admin can manage any system
+        if (isAdmin(username)) return true;
+        
+        // User can only manage systems in their company
+        if (isUser(username)) {
+            Long userCompanyId = getUserCompanyId(username);
+            if (userCompanyId == null) return false;
+            
+            Optional<AlarmSystem> systemOpt = alarmSystemRepository.findById(systemId);
+            if (systemOpt.isEmpty()) return false;
+            
+            AlarmSystem system = systemOpt.get();
+            if (system.getCompany() == null) return false;
+            
+            // DEBUG
+            System.out.println("DEBUG: canManageSystem - User company: " + userCompanyId + 
+                            ", System company: " + system.getCompany().getId() +
+                            ", Result: " + system.getCompany().getId().equals(userCompanyId));
+            
+            return system.getCompany().getId().equals(userCompanyId);
+        }
+        
+        return false;
     }
 
     public boolean canManageSystem(String username, AlarmSystem system) {

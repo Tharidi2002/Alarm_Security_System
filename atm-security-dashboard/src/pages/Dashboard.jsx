@@ -86,6 +86,7 @@ export default function Dashboard({ user, onLogout }) {
         isOpen={isAdminPanelOpen} 
         onClose={() => setIsAdminPanelOpen(false)}
         user={user}
+        onSystemChange={refreshAlerts}
       />
 
       <ReportGenerator

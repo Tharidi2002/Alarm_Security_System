@@ -263,17 +263,30 @@ export const toggleSystemStatus = async (systemId, status, username) => {
 };
 
 export const deleteSystem = async (systemId, username) => {
-  let url = `${API_BASE_URL}/admin/systems/${systemId}`;
-  if (username) url += `?username=${encodeURIComponent(username)}`;
-  
-  const response = await fetch(url, {
-    method: 'DELETE',
-  });
-  if (!response.ok) {
-    const errorMsg = await response.text();
-    throw new Error(errorMsg || 'Failed to delete system');
+  try {
+    let url = `${API_BASE_URL}/admin/systems/${systemId}`;
+    if (username) url += `?username=${encodeURIComponent(username)}`;
+    
+    console.log('Deleting system:', url);
+    
+    const response = await fetch(url, {
+      method: 'DELETE',
+    });
+    
+    if (!response.ok) {
+      const errorMsg = await response.text();
+      console.error('Delete system error response:', errorMsg);
+      throw new Error(errorMsg || 'Failed to delete system');
+    }
+    
+    const result = await response.text();
+    console.log('Delete system result:', result);
+    return true;
+    
+  } catch (error) {
+    console.error('Error deleting system:', error);
+    throw error;
   }
-  return true;
 };
 
 // ============================================================

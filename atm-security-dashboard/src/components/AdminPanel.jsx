@@ -26,7 +26,7 @@ import {
 import ZoneManagement from './ZoneManagement';
 import CompanyManagement from './CompanyManagement';
 
-export default function AdminPanel({ isOpen, onClose, user }) {
+export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
   const [activeTab, setActiveTab] = useState('USERS');
   const [users, setUsers] = useState([]);
   const [systems, setSystems] = useState([]);
@@ -129,12 +129,32 @@ export default function AdminPanel({ isOpen, onClose, user }) {
     setLoading(true);
     setError('');
     try {
-      const [usersData, systemsData, companiesData] = await Promise.all([
+      const [usersData, systemsDataRaw, companiesDataRaw] = await Promise.all([
         fetchUsers(user?.role === 'USER' ? user.companyId : null, user?.username),
         fetchSystems(user?.role === 'USER' ? user.companyId : null, user?.username),
         fetchCompanies(user?.username).catch(() => [])
       ]);
-      setUsers(usersData);
+
+      // Client-side safeguard: if current user is a USER, only show data for their company
+      const systemsData = user?.role === 'USER' && user?.companyId
+        ? (systemsDataRaw || []).filter(s => s.company && String(s.company.id) === String(user.companyId))
+        : (systemsDataRaw || []);
+
+      const companiesData = user?.role === 'USER' && user?.companyId
+        ? (companiesDataRaw || []).filter(c => String(c.id) === String(user.companyId))
+        : (companiesDataRaw || []);
+
+      const usersDataFiltered = user?.role === 'USER' && user?.companyId
+        ? (usersData || []).filter(u => {
+            // try multiple possible user->company relations
+            if (u.company && u.company.id) return String(u.company.id) === String(user.companyId);
+            if (u.companyId) return String(u.companyId) === String(user.companyId);
+            // fallback: allow all users (admins may still want to manage)
+            return true;
+          })
+        : (usersData || []);
+
+      setUsers(usersDataFiltered);
       setSystems(systemsData);
       setCompanies(companiesData || []);
       if (activeTab === 'SYSTEMS') {
@@ -327,6 +347,8 @@ export default function AdminPanel({ isOpen, onClose, user }) {
       setSelectedCompanyId('');
       await loadData();
       await fetchLatestSystemCode();
+      // Notify parent (e.g., Dashboard/Navbar) to refresh systems list
+      if (onSystemChange) onSystemChange();
     } catch (errorMsg) {
       setError(errorMsg.message || 'Failed to create system');
     } finally {
@@ -382,6 +404,8 @@ export default function AdminPanel({ isOpen, onClose, user }) {
       setSelectedCompanyId('');
       loadData();
       await fetchLatestSystemCode();
+      // Notify parent to refresh systems list
+      if (onSystemChange) onSystemChange();
     } catch (errorMsg) {
       setError(errorMsg.message || 'Failed to update system');
     }
@@ -407,6 +431,8 @@ export default function AdminPanel({ isOpen, onClose, user }) {
       await toggleSystemStatus(system.id, newStatus, user?.username);
       setSuccess(`✅ System ${system.systemCode} is now ${newStatus}`);
       loadData();
+      // Notify parent to refresh systems list
+      if (onSystemChange) onSystemChange();
     } catch (errorMsg) {
       setError(errorMsg.message || 'Failed to change status');
     }
@@ -438,15 +464,28 @@ export default function AdminPanel({ isOpen, onClose, user }) {
 
   const handleDeleteSystem = async (systemId, systemCode) => {
     if (!window.confirm(`Are you sure you want to delete "${systemCode}"? This cannot be undone.`)) return;
+    
     setError('');
     setSuccess('');
+    setLoading(true);
+    
     try {
+      console.log('Deleting system:', systemId, 'with username:', user?.username);
+      
       await deleteSystem(systemId, user?.username);
+      
       setSuccess(`✅ System ${systemCode} deleted successfully`);
-      loadData();
+      await loadData();
       await fetchLatestSystemCode();
+      
+      // Notify parent to refresh
+      if (onSystemChange) onSystemChange();
+      
     } catch (errorMsg) {
+      console.error('Delete error:', errorMsg);
       setError(errorMsg.message || 'Failed to delete system');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1134,6 +1173,7 @@ export default function AdminPanel({ isOpen, onClose, user }) {
               onClose={() => {}}
               username={user?.username}
               userRole={user?.role}
+              companyId={user?.companyId}
             />
           )}
           
@@ -1339,4 +1379,5 @@ AdminPanel.propTypes = {
     companyName: PropTypes.string,
     companyCode: PropTypes.string,
   }),
+  onSystemChange: PropTypes.func,
 };

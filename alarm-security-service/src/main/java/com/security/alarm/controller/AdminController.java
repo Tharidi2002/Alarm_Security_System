@@ -512,19 +512,37 @@ public class AdminController {
 
     @DeleteMapping("/systems/{id}")
     public ResponseEntity<?> deleteSystem(@PathVariable Long id,
-                                          @RequestParam(required = false) String username) {
-        if (!alarmSystemRepository.existsById(id)) {
-            return ResponseEntity.notFound().build();
-        }
-        
-        if (username != null && !username.isEmpty()) {
-            if (!permissionService.canManageSystem(username, id)) {
-                return ResponseEntity.status(403).body("Access denied: You can only delete systems in your company");
+                                        @RequestParam(required = false) String username) {
+        try {
+            // Check if system exists
+            Optional<AlarmSystem> systemOpt = alarmSystemRepository.findById(id);
+            if (systemOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
             }
+            
+            System.out.println("DEBUG: deleteSystem called - System ID: " + id + ", Username: " + username);
+            
+            // Permission check
+            if (username != null && !username.isEmpty()) {
+                if (!permissionService.canManageSystem(username, id)) {
+                    System.out.println("DEBUG: deleteSystem - Access denied for user: " + username);
+                    return ResponseEntity.status(403).body("Access denied: You can only delete systems in your company");
+                }
+            }
+            
+            // Delete zones first (foreign key constraint)
+            alarmZoneRepository.deleteBySystemId(id);
+            
+            // Delete the system
+            alarmSystemRepository.deleteById(id);
+            
+            System.out.println("DEBUG: deleteSystem - System " + id + " deleted successfully");
+            return ResponseEntity.ok("System deleted successfully");
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Error deleting system: " + e.getMessage());
         }
-        
-        alarmSystemRepository.deleteById(id);
-        return ResponseEntity.ok("System deleted successfully");
     }
 
     private void createDefaultZones(AlarmSystem system) {
