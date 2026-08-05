@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { 
   X, UserPlus, ShieldAlert, Check, Plus, AlertCircle, Users, Cpu, 
@@ -7,6 +7,7 @@ import {
   Key, Lock, Layers, Trash, Search, Smartphone, Settings,
   BellOff, ShieldOff, Building
 } from 'lucide-react';
+import { Database } from 'lucide-react';
 import { 
   fetchUsers, 
   createUser, 
@@ -16,15 +17,15 @@ import {
   createSystem,
   updateSystem,
   toggleSystemStatus,
-  deleteSystem,
   resetUserPassword,
   deleteUser,
   sendSystemCommand,
-  disarmSystem,
   stopSiren
 } from '../services/api';
 import ZoneManagement from './ZoneManagement';
 import CompanyManagement from './CompanyManagement';
+import DeleteConfirmationModal from './DeleteConfirmationModal';
+import ArchivedSystems from './ArchivedSystems';
 
 export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
   const [activeTab, setActiveTab] = useState('USERS');
@@ -71,32 +72,28 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
   const [selectedSystemId, setSelectedSystemId] = useState(null);
   const [selectedSystemCode, setSelectedSystemCode] = useState('');
 
+  // Delete confirmation / archived view states
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [systemToDelete, setSystemToDelete] = useState(null);
+
   // User Search state
   const [userSearchQuery, setUserSearchQuery] = useState('');
 
   const [timeNow, setTimeNow] = useState(new Date());
-
-  useEffect(() => {
-    if (isOpen && activeTab === 'SYSTEMS') {
-      fetchLatestSystemCode();
-    }
-  }, [isOpen, activeTab]);
-
-  useEffect(() => {
-    if (isOpen) {
-      loadData();
-    }
-  }, [isOpen, activeTab]);
-
+  
   useEffect(() => {
     const interval = setInterval(() => setTimeNow(new Date()), 60000);
     return () => clearInterval(interval);
   }, []);
 
-  const fetchLatestSystemCode = async () => {
+  const fetchLatestSystemCode = useCallback(async () => {
     try {
+      const userCompanyId = user?.companyId || user?.company?.id || user?.company?.companyId || null;
+      const targetCompanyId = user?.role === 'ADMIN'
+        ? (selectedCompanyId || userCompanyId)
+        : userCompanyId;
       const systemsData = await fetchSystems(
-        user?.role === 'USER' ? user.companyId : null,
+        targetCompanyId,
         user?.username
       );
       if (systemsData && systemsData.length > 0) {
@@ -123,34 +120,43 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
       console.error('Error fetching system code:', error);
       setGeneratedCode('ALARM-Z8B-01');
     }
-  };
+  }, [user]);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
+      const userCompanyId = user?.companyId || user?.company?.id || user?.company?.companyId || null;
       const [usersData, systemsDataRaw, companiesDataRaw] = await Promise.all([
-        fetchUsers(user?.role === 'USER' ? user.companyId : null, user?.username),
-        fetchSystems(user?.role === 'USER' ? user.companyId : null, user?.username),
+        fetchUsers(user?.role === 'USER' ? userCompanyId : null, user?.username),
+        fetchSystems(user?.role === 'USER' ? userCompanyId : null, user?.username),
         fetchCompanies(user?.username).catch(() => [])
       ]);
 
       // Client-side safeguard: if current user is a USER, only show data for their company
-      const systemsData = user?.role === 'USER' && user?.companyId
-        ? (systemsDataRaw || []).filter(s => s.company && String(s.company.id) === String(user.companyId))
-        : (systemsDataRaw || []);
+      const systemsData = (() => {
+        if (!(systemsDataRaw || []).length) return [];
+        if (user?.role === 'USER' && userCompanyId) {
+          return (systemsDataRaw || []).filter(s => {
+            const systemCompanyId = s?.company?.id || s?.companyId || s?.company?.companyId || null;
+            return String(systemCompanyId) === String(userCompanyId);
+          });
+        }
+        return (systemsDataRaw || []);
+      })();
 
-      const companiesData = user?.role === 'USER' && user?.companyId
-        ? (companiesDataRaw || []).filter(c => String(c.id) === String(user.companyId))
+      const companiesData = user?.role === 'USER' && userCompanyId
+        ? (companiesDataRaw || []).filter(c => String(c.id) === String(userCompanyId))
         : (companiesDataRaw || []);
 
-      const usersDataFiltered = user?.role === 'USER' && user?.companyId
+      const usersDataFiltered = user?.role === 'USER' && userCompanyId
         ? (usersData || []).filter(u => {
             // try multiple possible user->company relations
-            if (u.company && u.company.id) return String(u.company.id) === String(user.companyId);
-            if (u.companyId) return String(u.companyId) === String(user.companyId);
-            // fallback: allow all users (admins may still want to manage)
-            return true;
+            const uCompanyId = u?.company?.id || u?.companyId || u?.company?.companyId || null;
+            if (uCompanyId) return String(uCompanyId) === String(userCompanyId);
+            // fallback: include user if username matches
+            if (u?.username && u.username === user?.username) return true;
+            return false;
           })
         : (usersData || []);
 
@@ -166,7 +172,7 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, fetchLatestSystemCode, activeTab]);
 
   const copyToClipboard = () => {
     if (generatedCode) {
@@ -175,6 +181,20 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
       setTimeout(() => setCopied(false), 2000);
     }
   };
+
+    // run fetchLatestSystemCode when systems tab opens
+    useEffect(() => {
+      if (isOpen && activeTab === 'SYSTEMS') {
+        fetchLatestSystemCode();
+      }
+    }, [isOpen, activeTab, fetchLatestSystemCode]);
+
+    // load data when panel opens
+    useEffect(() => {
+      if (isOpen) {
+        loadData();
+      }
+    }, [isOpen, loadData]);
 
   // ========== USER MANAGEMENT ==========
   const handleCreateUser = async (e) => {
@@ -322,7 +342,10 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
       };
 
       // For USER role, don't send companyId - backend will auto-detect from username
-      const companyIdToSend = user?.role === 'ADMIN' ? (selectedCompanyId || null) : null;
+      const userCompanyId = user?.companyId || user?.company?.id || user?.company?.companyId || null;
+      const companyIdToSend = user?.role === 'ADMIN'
+        ? (selectedCompanyId || userCompanyId || null)
+        : userCompanyId;
       
       console.log('Creating system with:', {
         systemData,
@@ -462,31 +485,27 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
     }
   };
 
-  const handleDeleteSystem = async (systemId, systemCode) => {
-    if (!window.confirm(`Are you sure you want to delete "${systemCode}"? This cannot be undone.`)) return;
-    
+  // Delete handled via DeleteConfirmationModal (archive + delete flow)
+
+  const openDeleteConfirm = (system) => {
+    setSystemToDelete(system);
+    setShowDeleteConfirm(true);
     setError('');
     setSuccess('');
-    setLoading(true);
-    
-    try {
-      console.log('Deleting system:', systemId, 'with username:', user?.username);
-      
-      await deleteSystem(systemId, user?.username);
-      
-      setSuccess(`✅ System ${systemCode} deleted successfully`);
-      await loadData();
-      await fetchLatestSystemCode();
-      
-      // Notify parent to refresh
-      if (onSystemChange) onSystemChange();
-      
-    } catch (errorMsg) {
-      console.error('Delete error:', errorMsg);
-      setError(errorMsg.message || 'Failed to delete system');
-    } finally {
-      setLoading(false);
-    }
+  };
+
+  const closeDeleteConfirm = () => {
+    setShowDeleteConfirm(false);
+    setSystemToDelete(null);
+  };
+
+  const handleDeleteConfirmed = () => {
+    setShowDeleteConfirm(false);
+    setSystemToDelete(null);
+    loadData();
+    fetchLatestSystemCode();
+    if (onSystemChange) onSystemChange();
+    setSuccess('✅ System archived and deleted');
   };
 
   // Format status duration
@@ -578,6 +597,18 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
               <Cpu className="w-4 h-4" /> Systems / Devices
             </button>
             
+            {/* Archived tab - visible to both roles */}
+            <button
+              onClick={() => { setActiveTab('ARCHIVED'); setError(''); setSuccess(''); }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono tracking-wider uppercase transition-all ${
+                activeTab === 'ARCHIVED' 
+                  ? 'bg-red-650 text-white border border-red-500 shadow-md shadow-red-500/10' 
+                  : 'bg-slate-950/50 hover:bg-slate-800 text-slate-400 border border-slate-800'
+              }`}
+            >
+              <Database className="w-4 h-4" /> Archived
+            </button>
+            
             {/* Companies tab - Only for ADMIN */}
             {isAdmin && (
               <button
@@ -599,6 +630,26 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
               <Building className="w-3.5 h-3.5" />
               Managing Company: {user.companyName} {user.companyCode && `(${user.companyCode})`}
             </div>
+          )}
+
+          {/* Delete confirmation modal (archive + delete) */}
+          {showDeleteConfirm && systemToDelete && (
+            <DeleteConfirmationModal
+              isOpen={showDeleteConfirm}
+              onClose={closeDeleteConfirm}
+              system={systemToDelete}
+              username={user?.username}
+              onConfirm={handleDeleteConfirmed}
+            />
+          )}
+
+          {/* ========== ARCHIVED SYSTEMS (both roles) ========== */}
+          {activeTab === 'ARCHIVED' && (
+            <ArchivedSystems
+              isOpen={true}
+              onClose={() => { setActiveTab('SYSTEMS'); }}
+              username={user?.username}
+            />
           )}
         </div>
 
@@ -1150,7 +1201,7 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                             </button>
 
                             <button
-                              onClick={() => handleDeleteSystem(sys.id, sys.systemCode)}
+                              onClick={() => openDeleteConfirm(sys)}
                               title="Delete System"
                               className="p-1.5 bg-red-500/10 hover:bg-red-650 text-red-400 hover:text-white border border-red-500/20 hover:border-red-500 rounded-lg transition-all"
                             >
@@ -1378,6 +1429,11 @@ AdminPanel.propTypes = {
     companyId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     companyName: PropTypes.string,
     companyCode: PropTypes.string,
+    assignedSystems: PropTypes.array,
+    company: PropTypes.shape({
+      id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+      companyId: PropTypes.oneOfType([PropTypes.string, PropTypes.number])
+    })
   }),
   onSystemChange: PropTypes.func,
 };

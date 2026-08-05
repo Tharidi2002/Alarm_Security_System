@@ -58,4 +58,25 @@ public class AlarmSystem {
 
     @Column(name = "siren_status")
     private String sirenStatus = "OFF";
+
+    // ============================================================
+    // NEW: SOFT DELETE FIELDS
+    // ============================================================
+    @Column(name = "deleted")
+    private Boolean deleted = false;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
+    @Column(name = "deleted_by")
+    private String deletedBy;
+
+    @Column(name = "archived")
+    private Boolean archived = false;
+
+    @Column(name = "archived_at")
+    private LocalDateTime archivedAt;
+
+    @Column(name = "archived_by")
+    private String archivedBy;
 }

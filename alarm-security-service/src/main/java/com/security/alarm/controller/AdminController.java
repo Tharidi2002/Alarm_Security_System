@@ -12,6 +12,7 @@ import com.security.alarm.repository.AlarmSystemRepository;
 import com.security.alarm.repository.CompanyRepository;
 import com.security.alarm.repository.RegistrationAuditLogRepository;
 import com.security.alarm.repository.AlarmZoneRepository;
+import com.security.alarm.repository.AlertLogRepository;
 import com.security.alarm.service.PermissionService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -38,6 +39,7 @@ public class AdminController {
     private final AlarmZoneRepository alarmZoneRepository;
     private final RegistrationAuditLogRepository auditLogRepository;
     private final PermissionService permissionService;
+    private final AlertLogRepository alertLogRepository;
 
     public AdminController(UserRepository userRepository,
                         UserSystemRepository userSystemRepository,
@@ -46,7 +48,8 @@ public class AdminController {
                         PasswordEncoder passwordEncoder,
                         AlarmZoneRepository alarmZoneRepository,
                         RegistrationAuditLogRepository auditLogRepository,
-                        PermissionService permissionService) {
+                        PermissionService permissionService,
+                        AlertLogRepository alertLogRepository) {
         this.userRepository = userRepository;
         this.userSystemRepository = userSystemRepository;
         this.alarmSystemRepository = alarmSystemRepository;
@@ -55,6 +58,7 @@ public class AdminController {
         this.alarmZoneRepository = alarmZoneRepository;
         this.auditLogRepository = auditLogRepository;
         this.permissionService = permissionService;
+        this.alertLogRepository = alertLogRepository;
     }
 
     // ============================================================
@@ -283,24 +287,24 @@ public class AdminController {
                                         @RequestParam(required = false) String username) {
         System.out.println("DEBUG: getSystems called with username: " + username + ", companyId: " + companyId);
         
-        // If USER, return only their company systems
+        // If USER, return only their company systems (excluding deleted)
         if (username != null && !username.isEmpty() && permissionService.isUser(username)) {
             Long userCompanyId = permissionService.getUserCompanyId(username);
             System.out.println("DEBUG: User company ID: " + userCompanyId);
             if (userCompanyId == null) {
                 return ResponseEntity.badRequest().body("User has no company assigned");
             }
-            List<AlarmSystem> systems = alarmSystemRepository.findByCompanyId(userCompanyId);
+            List<AlarmSystem> systems = alarmSystemRepository.findActiveByCompanyId(userCompanyId);
             System.out.println("DEBUG: Found " + systems.size() + " systems for user's company");
             return ResponseEntity.ok(systems);
         }
         
-        // Admin - all systems or filter by company
+        // Admin - all systems (excluding deleted) or filter by company
         List<AlarmSystem> systems;
         if (companyId != null && companyId > 0) {
-            systems = alarmSystemRepository.findByCompanyId(companyId);
+            systems = alarmSystemRepository.findActiveByCompanyId(companyId);
         } else {
-            systems = alarmSystemRepository.findAll();
+            systems = alarmSystemRepository.findAllActive();
         }
         System.out.println("DEBUG: Found " + systems.size() + " systems total");
         return ResponseEntity.ok(systems);
@@ -310,9 +314,9 @@ public class AdminController {
     public ResponseEntity<?> createSystem(@RequestBody AlarmSystem system,
                                           @RequestParam(required = false) Long companyId,
                                           @RequestParam(required = false) String username) {
-        // Check system limit
-        if (alarmSystemRepository.count() >= 5) {
-            return ResponseEntity.badRequest().body("System registration limit reached. A maximum of 5 systems can be registered.");
+        // Check system limit (only count active/non-deleted systems)
+        if (alarmSystemRepository.countActive() >= 5) {
+            return ResponseEntity.badRequest().body("System registration limit reached. A maximum of 5 active systems can be registered.");
         }
 
         if (system.getLocation() == null || system.getLocation().trim().isEmpty()) {
@@ -331,16 +335,13 @@ public class AdminController {
         // ============================================================
         Long targetCompanyId = null;
         
-        // 1. If companyId is passed as parameter, use it
         if (companyId != null && companyId > 0) {
             targetCompanyId = companyId;
         }
         
-        // 2. If username is provided, check user's role
         if (username != null && !username.isEmpty()) {
             User user = permissionService.getUser(username);
             if (user != null) {
-                // If user is USER role, force their company
                 if ("USER".equalsIgnoreCase(user.getRole())) {
                     if (user.getCompany() == null) {
                         return ResponseEntity.badRequest().body("User has no company assigned. Cannot create system.");
@@ -348,7 +349,6 @@ public class AdminController {
                     targetCompanyId = user.getCompany().getId();
                     System.out.println("DEBUG: USER role - forcing company ID: " + targetCompanyId);
                 } else if ("ADMIN".equalsIgnoreCase(user.getRole())) {
-                    // Admin can override with companyId from request body
                     if (system.getCompany() != null && system.getCompany().getId() != null) {
                         targetCompanyId = system.getCompany().getId();
                     }
@@ -357,14 +357,10 @@ public class AdminController {
             }
         }
         
-        // 3. If still null, try from system object
         if (targetCompanyId == null && system.getCompany() != null && system.getCompany().getId() != null) {
             targetCompanyId = system.getCompany().getId();
         }
 
-        // ============================================================
-        // GET COMPANY ENTITY
-        // ============================================================
         Company company = null;
         if (targetCompanyId != null && targetCompanyId > 0) {
             Optional<Company> companyOpt = companyRepository.findById(targetCompanyId);
@@ -374,8 +370,6 @@ public class AdminController {
             } else {
                 return ResponseEntity.badRequest().body("Company not found with ID: " + targetCompanyId);
             }
-        } else {
-            System.out.println("DEBUG: No company assigned to this system");
         }
 
         // Generate system code
@@ -406,9 +400,9 @@ public class AdminController {
         newSystem.setSimNumber(system.getSimNumber().trim());
         newSystem.setStatus(system.getStatus() != null ? system.getStatus() : "ACTIVE");
         newSystem.setLastStatusChangedAt(LocalDateTime.now());
-        
-        // CRITICAL: Set the company
         newSystem.setCompany(company);
+        newSystem.setDeleted(false);
+        newSystem.setArchived(false);
         
         newSystem.setPanelSimNumber(system.getSimNumber().trim());
         newSystem.setPanelPassword("8888");
@@ -466,7 +460,6 @@ public class AdminController {
             system.setStatus(systemDetails.getStatus());
         }
 
-        // Only Admin can change company
         if (username == null || !username.isEmpty() && permissionService.isAdmin(username)) {
             Long targetCompanyId = companyId;
             if (targetCompanyId == null && systemDetails.getCompany() != null) {
@@ -512,33 +505,49 @@ public class AdminController {
 
     @DeleteMapping("/systems/{id}")
     public ResponseEntity<?> deleteSystem(@PathVariable Long id,
-                                        @RequestParam(required = false) String username) {
+                                        @RequestParam(required = false) String username,
+                                        @RequestParam(required = false) String permanent) {
         try {
-            // Check if system exists
             Optional<AlarmSystem> systemOpt = alarmSystemRepository.findById(id);
             if (systemOpt.isEmpty()) {
                 return ResponseEntity.notFound().build();
             }
-            
+
+            AlarmSystem system = systemOpt.get();
+
+            if (Boolean.TRUE.equals(system.getDeleted())) {
+                if ("true".equalsIgnoreCase(permanent)) {
+                    alarmZoneRepository.deleteBySystemId(id);
+                    alertLogRepository.deleteByAlarmSystemId(id);
+                    alarmSystemRepository.deleteById(id);
+                    return ResponseEntity.ok("System permanently deleted");
+                }
+                return ResponseEntity.badRequest().body("System is already deleted");
+            }
+
             System.out.println("DEBUG: deleteSystem called - System ID: " + id + ", Username: " + username);
-            
-            // Permission check
+
             if (username != null && !username.isEmpty()) {
                 if (!permissionService.canManageSystem(username, id)) {
                     System.out.println("DEBUG: deleteSystem - Access denied for user: " + username);
                     return ResponseEntity.status(403).body("Access denied: You can only delete systems in your company");
                 }
             }
-            
-            // Delete zones first (foreign key constraint)
+
+            // Delete zones and alerts
             alarmZoneRepository.deleteBySystemId(id);
-            
-            // Delete the system
-            alarmSystemRepository.deleteById(id);
-            
+            alertLogRepository.deleteByAlarmSystemId(id);
+
+            // Soft delete
+            system.setDeleted(true);
+            system.setDeletedAt(LocalDateTime.now());
+            system.setDeletedBy(username != null ? username : "SYSTEM");
+            system.setStatus("DELETED");
+            alarmSystemRepository.save(system);
+
             System.out.println("DEBUG: deleteSystem - System " + id + " deleted successfully");
-            return ResponseEntity.ok("System deleted successfully");
-            
+            return ResponseEntity.ok("System deleted successfully. Data archived.");
+
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.status(500).body("Error deleting system: " + e.getMessage());
@@ -583,10 +592,6 @@ public class AdminController {
         }
     }
 
-    // ============================================================
-    // HELPER: Get Client IP
-    // ============================================================
-    
     private String getClientIp(HttpServletRequest request) {
         String ip = request.getHeader("X-Forwarded-For");
         if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {

@@ -522,3 +522,53 @@ export const getReportSystems = async (username) => {
   if (!response.ok) throw new Error('Failed to get report systems');
   return await response.json();
 };
+
+// Add these functions to api.js
+
+// ============================================================
+// ARCHIVE SYSTEM
+// ============================================================
+
+export const checkDeletionEligibility = async (systemId, username) => {
+  const url = `${API_BASE_URL}/admin/archive/systems/${systemId}/check?username=${encodeURIComponent(username)}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    const errorMsg = await response.text();
+    throw new Error(errorMsg || 'Failed to check deletion eligibility');
+  }
+  return await response.json();
+};
+
+export const archiveAndDeleteSystem = async (systemId, username) => {
+  const url = `${API_BASE_URL}/admin/archive/systems/${systemId}/archive-delete?username=${encodeURIComponent(username)}&deleteBy=${encodeURIComponent(username)}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!response.ok) {
+    const errorMsg = await response.text();
+    throw new Error(errorMsg || 'Failed to archive and delete system');
+  }
+  return await response.json();
+};
+
+export const getArchivedSystems = async (username) => {
+  const url = `${API_BASE_URL}/admin/archive${username ? `?username=${encodeURIComponent(username)}` : ''}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('Failed to fetch archived systems');
+  return await response.json();
+};
+
+export const getArchiveDetails = async (archiveId, username) => {
+  const url = `${API_BASE_URL}/admin/archive/${archiveId}/report?username=${encodeURIComponent(username)}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('Failed to fetch archive details');
+  return await response.json();
+};
+
+export const downloadArchiveReport = async (archiveId, username) => {
+  const url = `${API_BASE_URL}/admin/archive/${archiveId}/report?username=${encodeURIComponent(username)}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('Failed to download archive report');
+  return await response.json();
+};

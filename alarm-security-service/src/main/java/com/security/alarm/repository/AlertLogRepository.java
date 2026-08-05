@@ -2,8 +2,10 @@ package com.security.alarm.repository;
 
 import com.security.alarm.entity.AlertLog;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -13,7 +15,6 @@ public interface AlertLogRepository extends JpaRepository<AlertLog, Long> {
     
     List<AlertLog> findAllByAlarmSystemIdInOrderByReceivedAtDesc(List<Long> systemIds);
     
-    // FOR SIREN CONTROL
     List<AlertLog> findByAlarmSystemIdAndStatusOrderByReceivedAtDesc(Long systemId, String status);
     
     long countByAlarmSystemIdAndStatus(Long systemId, String status);
@@ -26,7 +27,6 @@ public interface AlertLogRepository extends JpaRepository<AlertLog, Long> {
     @Query("SELECT a FROM AlertLog a LEFT JOIN FETCH a.alarmSystem WHERE a.id = :id")
     AlertLog findByIdWithSystem(Long id);
     
-    // Report queries
     List<AlertLog> findByReceivedAtBetween(LocalDateTime from, LocalDateTime to);
     
     List<AlertLog> findByAlarmSystemIdInAndReceivedAtBetween(List<Long> systemIds, LocalDateTime from, LocalDateTime to);
@@ -39,9 +39,20 @@ public interface AlertLogRepository extends JpaRepository<AlertLog, Long> {
                                       @Param("systemCode") String systemCode,
                                       @Param("status") String status);
     
+    List<AlertLog> findByAlarmSystemId(Long systemId);
+    
     // ============================================================
-    // NEW: Get alerts by company (via system company)
+    // NEW: For Archive/Delete
     // ============================================================
+    @Modifying
+    @Transactional
+    @Query("DELETE FROM AlertLog a WHERE a.alarmSystem.id = :systemId")
+    void deleteByAlarmSystemId(@Param("systemId") Long systemId);
+    
+    @Query("SELECT a FROM AlertLog a WHERE a.alarmSystem.id = :systemId ORDER BY a.receivedAt DESC")
+    List<AlertLog> findByAlarmSystemIdOrderByReceivedAtDesc(@Param("systemId") Long systemId);
+    
+    // Company based queries
     @Query("SELECT a FROM AlertLog a WHERE a.alarmSystem.company.id = :companyId ORDER BY a.receivedAt DESC")
     List<AlertLog> findByCompanyId(@Param("companyId") Long companyId);
     
