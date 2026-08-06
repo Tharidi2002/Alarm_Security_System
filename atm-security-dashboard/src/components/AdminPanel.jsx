@@ -20,7 +20,8 @@ import {
   resetUserPassword,
   deleteUser,
   sendSystemCommand,
-  stopSiren
+  stopSiren,
+  getNextSystemCode
 } from '../services/api';
 import ZoneManagement from './ZoneManagement';
 import CompanyManagement from './CompanyManagement';
@@ -86,41 +87,18 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
     return () => clearInterval(interval);
   }, []);
 
+  
+  // Get next system code from backend (Global)
   const fetchLatestSystemCode = useCallback(async () => {
     try {
-      const userCompanyId = user?.companyId || user?.company?.id || user?.company?.companyId || null;
-      const targetCompanyId = user?.role === 'ADMIN'
-        ? (selectedCompanyId || userCompanyId)
-        : userCompanyId;
-      const systemsData = await fetchSystems(
-        targetCompanyId,
-        user?.username
-      );
-      if (systemsData && systemsData.length > 0) {
-        const z8bSystems = systemsData
-          .filter(s => s.systemCode && s.systemCode.startsWith('ALARM-Z8B-'))
-          .sort((a, b) => {
-            const numA = parseInt(a.systemCode.split('-')[2]);
-            const numB = parseInt(b.systemCode.split('-')[2]);
-            return numB - numA;
-          });
-        
-        if (z8bSystems.length > 0) {
-          const lastCode = z8bSystems[0].systemCode;
-          const lastNum = parseInt(lastCode.split('-')[2]);
-          const nextNum = lastNum + 1;
-          setGeneratedCode(`ALARM-Z8B-${String(nextNum).padStart(2, '0')}`);
-        } else {
-          setGeneratedCode('ALARM-Z8B-01');
-        }
-      } else {
-        setGeneratedCode('ALARM-Z8B-01');
-      }
+      const data = await getNextSystemCode();
+      setGeneratedCode(data.nextCode);
+      console.log('✅ Next system code:', data.nextCode);
     } catch (error) {
       console.error('Error fetching system code:', error);
       setGeneratedCode('ALARM-Z8B-01');
     }
-  }, [user]);
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);

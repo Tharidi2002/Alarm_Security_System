@@ -24,6 +24,19 @@ export const getCurrentUser = async (username) => {
 };
 
 // ============================================================
+// SYSTEM CODE - NEW
+// ============================================================
+
+export const getNextSystemCode = async () => {
+  const response = await fetch(`${API_BASE_URL}/admin/systems/next-code`);
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error || 'Failed to get next system code');
+  }
+  return await response.json();
+};
+
+// ============================================================
 // ALERTS - COMPANY-BASED
 // ============================================================
 
@@ -166,7 +179,6 @@ export const fetchSystems = async (companyId, username) => {
     params.append('companyId', companyId);
   }
   
-  // CRITICAL: Pass username for company-based filtering
   if (username) {
     params.append('username', username);
   }
@@ -199,7 +211,6 @@ export const createSystem = async (systemData, companyId, username) => {
   let url = `${API_BASE_URL}/admin/systems`;
   const params = new URLSearchParams();
   
-  // IMPORTANT: Pass username for company detection
   if (username) {
     params.append('username', username);
   }
@@ -522,8 +533,6 @@ export const getReportSystems = async (username) => {
   if (!response.ok) throw new Error('Failed to get report systems');
   return await response.json();
 };
-
-// Add these functions to api.js
 
 // ============================================================
 // ARCHIVE SYSTEM

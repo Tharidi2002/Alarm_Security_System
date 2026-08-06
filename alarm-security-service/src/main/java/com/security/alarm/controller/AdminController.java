@@ -193,7 +193,7 @@ public class AdminController {
         User saved = userRepository.save(newUser);
         
         // ============================================================
-        // FIX: Auto-assign all systems from the user's company
+        // AUTO-ASSIGN: All systems from user's company
         // ============================================================
         if ("USER".equalsIgnoreCase(role) && company != null && company.getId() != null) {
             List<AlarmSystem> companySystems = alarmSystemRepository.findActiveByCompanyId(company.getId());
@@ -308,6 +308,21 @@ public class AdminController {
         return "ALARM-Z8B-01";
     }
 
+    // ============================================================
+    // NEW: Get Next System Code (Global)
+    // ============================================================
+    @GetMapping("/systems/next-code")
+    public ResponseEntity<?> getNextSystemCode() {
+        try {
+            String nextCode = generateNextSystemCode();
+            Map<String, Object> response = new HashMap<>();
+            response.put("nextCode", nextCode);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Error generating system code: " + e.getMessage());
+        }
+    }
+
     @GetMapping("/systems")
     public ResponseEntity<?> getSystems(@RequestParam(required = false) Long companyId,
                                         @RequestParam(required = false) String username) {
@@ -392,6 +407,7 @@ public class AdminController {
             }
         }
 
+        // Generate unique system code (with retry)
         String newSystemCode = generateNextSystemCode();
         int counter = 0;
         while (alarmSystemRepository.findBySystemCode(newSystemCode).isPresent() && counter < 100) {
@@ -431,14 +447,13 @@ public class AdminController {
         createDefaultZones(saved);
         
         // ============================================================
-        // FIX: Auto-assign system to all users in the company
+        // AUTO-ASSIGN: System to all users in the company
         // ============================================================
         if (company != null && company.getId() != null) {
             List<User> companyUsers = userRepository.findByCompanyId(company.getId());
             int assignedCount = 0;
             
             for (User user : companyUsers) {
-                // Only assign to USER role, not ADMIN
                 if ("USER".equalsIgnoreCase(user.getRole())) {
                     UserSystem us = new UserSystem();
                     us.setUserId(user.getId());
@@ -476,7 +491,7 @@ public class AdminController {
 
         AlarmSystem system = opt.get();
         Long oldCompanyId = system.getCompany() != null ? system.getCompany().getId() : null;
-        Long newCompanyId = oldCompanyId; // Default to current company
+        Long newCompanyId = oldCompanyId;
         
         if (systemDetails.getLocation() != null && !systemDetails.getLocation().trim().isEmpty()) {
             system.setLocation(systemDetails.getLocation().trim());
@@ -523,7 +538,7 @@ public class AdminController {
         AlarmSystem saved = alarmSystemRepository.save(system);
         
         // ============================================================
-        // FIX: If company changed, update user-system mappings
+        // If company changed, update user-system mappings
         // ============================================================
         if (!java.util.Objects.equals(newCompanyId, oldCompanyId)) {
             System.out.println("🔄 System " + saved.getSystemCode() + " company changed from " + 
@@ -541,8 +556,7 @@ public class AdminController {
                             .ifPresent(us -> {
                                 userSystemRepository.delete(us);
                                 System.out.println("✅ Removed system " + saved.getSystemCode() + 
-                                                   " from user " + user.getUsername() + 
-                                                   " (company changed from " + oldCompanyId + ")");
+                                                   " from user " + user.getUsername());
                             });
                     }
                 }
@@ -563,8 +577,7 @@ public class AdminController {
                             us.setSystemId(saved.getId());
                             userSystemRepository.save(us);
                             System.out.println("✅ Assigned system " + saved.getSystemCode() + 
-                                               " to user " + user.getUsername() + 
-                                               " (company changed to " + newCompanyId + ")");
+                                               " to user " + user.getUsername());
                         }
                     }
                 }
@@ -621,11 +634,8 @@ public class AdminController {
                 return ResponseEntity.badRequest().body("System is already deleted");
             }
 
-            System.out.println("DEBUG: deleteSystem called - System ID: " + id + ", Username: " + username);
-
             if (username != null && !username.isEmpty()) {
                 if (!permissionService.canManageSystem(username, id)) {
-                    System.out.println("DEBUG: deleteSystem - Access denied for user: " + username);
                     return ResponseEntity.status(403).body("Access denied: You can only delete systems in your company");
                 }
             }
@@ -639,7 +649,6 @@ public class AdminController {
             system.setStatus("DELETED");
             alarmSystemRepository.save(system);
 
-            System.out.println("DEBUG: deleteSystem - System " + id + " deleted successfully");
             return ResponseEntity.ok("System deleted successfully. Data archived.");
 
         } catch (Exception e) {
