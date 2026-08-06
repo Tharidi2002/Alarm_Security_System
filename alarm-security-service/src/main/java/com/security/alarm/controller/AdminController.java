@@ -192,6 +192,26 @@ public class AdminController {
         
         User saved = userRepository.save(newUser);
         
+        // ============================================================
+        // FIX: Auto-assign all systems from the user's company
+        // ============================================================
+        if ("USER".equalsIgnoreCase(role) && company != null && company.getId() != null) {
+            List<AlarmSystem> companySystems = alarmSystemRepository.findActiveByCompanyId(company.getId());
+            int assignedCount = 0;
+            
+            for (AlarmSystem system : companySystems) {
+                UserSystem us = new UserSystem();
+                us.setUserId(saved.getId());
+                us.setSystemId(system.getId());
+                userSystemRepository.save(us);
+                assignedCount++;
+            }
+            
+            System.out.println("✅ Auto-assigned " + assignedCount + 
+                               " systems to user " + username + 
+                               " from company " + company.getCompanyName());
+        }
+        
         String clientIp = getClientIp(httpRequest);
         RegistrationAuditLog log = new RegistrationAuditLog();
         log.setUsername(username);
@@ -200,7 +220,13 @@ public class AdminController {
             httpRequest.getParameter("adminUsername") : "admin"));
         log.setRegisteredFromIp(clientIp);
         log.setMethod("ADMIN_PANEL");
-        log.setNotes("User created by admin with company: " + (company != null ? company.getCompanyName() : "None"));
+        
+        int systemCount = 0;
+        if (company != null && company.getId() != null) {
+            systemCount = alarmSystemRepository.findActiveByCompanyId(company.getId()).size();
+        }
+        log.setNotes("User created by admin with company: " + (company != null ? company.getCompanyName() : "None") +
+                     (systemCount > 0 ? " - Auto-assigned " + systemCount + " systems" : ""));
         auditLogRepository.save(log);
         
         return ResponseEntity.ok(saved);
@@ -287,7 +313,6 @@ public class AdminController {
                                         @RequestParam(required = false) String username) {
         System.out.println("DEBUG: getSystems called with username: " + username + ", companyId: " + companyId);
         
-        // If USER, return only their company systems (excluding deleted)
         if (username != null && !username.isEmpty() && permissionService.isUser(username)) {
             Long userCompanyId = permissionService.getUserCompanyId(username);
             System.out.println("DEBUG: User company ID: " + userCompanyId);
@@ -299,7 +324,6 @@ public class AdminController {
             return ResponseEntity.ok(systems);
         }
         
-        // Admin - all systems (excluding deleted) or filter by company
         List<AlarmSystem> systems;
         if (companyId != null && companyId > 0) {
             systems = alarmSystemRepository.findActiveByCompanyId(companyId);
@@ -314,7 +338,6 @@ public class AdminController {
     public ResponseEntity<?> createSystem(@RequestBody AlarmSystem system,
                                           @RequestParam(required = false) Long companyId,
                                           @RequestParam(required = false) String username) {
-        // Check system limit (only count active/non-deleted systems)
         if (alarmSystemRepository.countActive() >= 5) {
             return ResponseEntity.badRequest().body("System registration limit reached. A maximum of 5 active systems can be registered.");
         }
@@ -330,9 +353,6 @@ public class AdminController {
             return ResponseEntity.badRequest().body("SIM number already registered to another system");
         }
 
-        // ============================================================
-        // DETERMINE COMPANY ID
-        // ============================================================
         Long targetCompanyId = null;
         
         if (companyId != null && companyId > 0) {
@@ -372,7 +392,6 @@ public class AdminController {
             }
         }
 
-        // Generate system code
         String newSystemCode = generateNextSystemCode();
         int counter = 0;
         while (alarmSystemRepository.findBySystemCode(newSystemCode).isPresent() && counter < 100) {
@@ -390,9 +409,6 @@ public class AdminController {
             counter++;
         }
 
-        // ============================================================
-        // CREATE SYSTEM
-        // ============================================================
         AlarmSystem newSystem = new AlarmSystem();
         newSystem.setSystemCode(newSystemCode);
         newSystem.setLocation(system.getLocation().trim());
@@ -413,6 +429,28 @@ public class AdminController {
 
         AlarmSystem saved = alarmSystemRepository.save(newSystem);
         createDefaultZones(saved);
+        
+        // ============================================================
+        // FIX: Auto-assign system to all users in the company
+        // ============================================================
+        if (company != null && company.getId() != null) {
+            List<User> companyUsers = userRepository.findByCompanyId(company.getId());
+            int assignedCount = 0;
+            
+            for (User user : companyUsers) {
+                // Only assign to USER role, not ADMIN
+                if ("USER".equalsIgnoreCase(user.getRole())) {
+                    UserSystem us = new UserSystem();
+                    us.setUserId(user.getId());
+                    us.setSystemId(saved.getId());
+                    userSystemRepository.save(us);
+                    assignedCount++;
+                }
+            }
+            
+            System.out.println("✅ Auto-assigned system " + newSystemCode + 
+                               " to " + assignedCount + " users in company " + company.getCompanyName());
+        }
         
         System.out.println("✅ System created: " + newSystemCode + 
                            " with company: " + (company != null ? company.getCompanyName() + " (ID: " + company.getId() + ")" : "NULL"));
@@ -437,6 +475,9 @@ public class AdminController {
         }
 
         AlarmSystem system = opt.get();
+        Long oldCompanyId = system.getCompany() != null ? system.getCompany().getId() : null;
+        Long newCompanyId = oldCompanyId; // Default to current company
+        
         if (systemDetails.getLocation() != null && !systemDetails.getLocation().trim().isEmpty()) {
             system.setLocation(systemDetails.getLocation().trim());
         }
@@ -467,14 +508,69 @@ public class AdminController {
             }
             if (targetCompanyId != null) {
                 if (targetCompanyId > 0) {
-                    companyRepository.findById(targetCompanyId).ifPresent(system::setCompany);
+                    Optional<Company> companyOpt = companyRepository.findById(targetCompanyId);
+                    if (companyOpt.isPresent()) {
+                        system.setCompany(companyOpt.get());
+                        newCompanyId = targetCompanyId;
+                    }
                 } else {
                     system.setCompany(null);
+                    newCompanyId = null;
                 }
             }
         }
 
         AlarmSystem saved = alarmSystemRepository.save(system);
+        
+        // ============================================================
+        // FIX: If company changed, update user-system mappings
+        // ============================================================
+        if (!java.util.Objects.equals(newCompanyId, oldCompanyId)) {
+            System.out.println("🔄 System " + saved.getSystemCode() + " company changed from " + 
+                               oldCompanyId + " to " + newCompanyId);
+            
+            // Remove from old company users
+            if (oldCompanyId != null) {
+                List<User> oldCompanyUsers = userRepository.findByCompanyId(oldCompanyId);
+                for (User user : oldCompanyUsers) {
+                    if ("USER".equalsIgnoreCase(user.getRole())) {
+                        List<UserSystem> existing = userSystemRepository.findAllByUserId(user.getId());
+                        existing.stream()
+                            .filter(us -> us.getSystemId().equals(saved.getId()))
+                            .findFirst()
+                            .ifPresent(us -> {
+                                userSystemRepository.delete(us);
+                                System.out.println("✅ Removed system " + saved.getSystemCode() + 
+                                                   " from user " + user.getUsername() + 
+                                                   " (company changed from " + oldCompanyId + ")");
+                            });
+                    }
+                }
+            }
+            
+            // Assign to new company users
+            if (newCompanyId != null) {
+                List<User> newCompanyUsers = userRepository.findByCompanyId(newCompanyId);
+                for (User user : newCompanyUsers) {
+                    if ("USER".equalsIgnoreCase(user.getRole())) {
+                        List<UserSystem> existing = userSystemRepository.findAllByUserId(user.getId());
+                        boolean alreadyAssigned = existing.stream()
+                            .anyMatch(us -> us.getSystemId().equals(saved.getId()));
+                        
+                        if (!alreadyAssigned) {
+                            UserSystem us = new UserSystem();
+                            us.setUserId(user.getId());
+                            us.setSystemId(saved.getId());
+                            userSystemRepository.save(us);
+                            System.out.println("✅ Assigned system " + saved.getSystemCode() + 
+                                               " to user " + user.getUsername() + 
+                                               " (company changed to " + newCompanyId + ")");
+                        }
+                    }
+                }
+            }
+        }
+        
         return ResponseEntity.ok(saved);
     }
 
@@ -534,11 +630,9 @@ public class AdminController {
                 }
             }
 
-            // Delete zones and alerts
             alarmZoneRepository.deleteBySystemId(id);
             alertLogRepository.deleteByAlarmSystemId(id);
 
-            // Soft delete
             system.setDeleted(true);
             system.setDeletedAt(LocalDateTime.now());
             system.setDeletedBy(username != null ? username : "SYSTEM");
