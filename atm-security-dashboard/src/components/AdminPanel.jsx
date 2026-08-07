@@ -5,9 +5,8 @@ import {
   ToggleLeft, ToggleRight, Edit2, Trash2, Save, Eye, EyeOff,
   RefreshCw, Zap, Copy, CheckCircle as CheckCircleIcon,
   Key, Lock, Layers, Trash, Search, Smartphone, Settings,
-  BellOff, ShieldOff, Building
+  BellOff, ShieldOff, Building, Database
 } from 'lucide-react';
-import { Database } from 'lucide-react';
 import { 
   fetchUsers, 
   createUser, 
@@ -26,7 +25,8 @@ import {
 import ZoneManagement from './ZoneManagement';
 import CompanyManagement from './CompanyManagement';
 import DeleteConfirmationModal from './DeleteConfirmationModal';
-import ArchivedSystems from './ArchivedSystems';
+import ArchivedSystemsInline from './ArchivedSystemsInline';
+
 
 export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
   const [activeTab, setActiveTab] = useState('USERS');
@@ -129,10 +129,8 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
 
       const usersDataFiltered = user?.role === 'USER' && userCompanyId
         ? (usersData || []).filter(u => {
-            // try multiple possible user->company relations
             const uCompanyId = u?.company?.id || u?.companyId || u?.company?.companyId || null;
             if (uCompanyId) return String(uCompanyId) === String(userCompanyId);
-            // fallback: include user if username matches
             if (u?.username && u.username === user?.username) return true;
             return false;
           })
@@ -160,19 +158,19 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
     }
   };
 
-    // run fetchLatestSystemCode when systems tab opens
-    useEffect(() => {
-      if (isOpen && activeTab === 'SYSTEMS') {
-        fetchLatestSystemCode();
-      }
-    }, [isOpen, activeTab, fetchLatestSystemCode]);
+  // run fetchLatestSystemCode when systems tab opens
+  useEffect(() => {
+    if (isOpen && activeTab === 'SYSTEMS') {
+      fetchLatestSystemCode();
+    }
+  }, [isOpen, activeTab, fetchLatestSystemCode]);
 
-    // load data when panel opens
-    useEffect(() => {
-      if (isOpen) {
-        loadData();
-      }
-    }, [isOpen, loadData]);
+  // load data when panel opens
+  useEffect(() => {
+    if (isOpen) {
+      loadData();
+    }
+  }, [isOpen, loadData]);
 
   // ========== USER MANAGEMENT ==========
   const handleCreateUser = async (e) => {
@@ -319,7 +317,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
         status: 'ACTIVE'
       };
 
-      // For USER role, don't send companyId - backend will auto-detect from username
       const userCompanyId = user?.companyId || user?.company?.id || user?.company?.companyId || null;
       const companyIdToSend = user?.role === 'ADMIN'
         ? (selectedCompanyId || userCompanyId || null)
@@ -348,7 +345,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
       setSelectedCompanyId('');
       await loadData();
       await fetchLatestSystemCode();
-      // Notify parent (e.g., Dashboard/Navbar) to refresh systems list
       if (onSystemChange) onSystemChange();
     } catch (errorMsg) {
       setError(errorMsg.message || 'Failed to create system');
@@ -405,7 +401,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
       setSelectedCompanyId('');
       loadData();
       await fetchLatestSystemCode();
-      // Notify parent to refresh systems list
       if (onSystemChange) onSystemChange();
     } catch (errorMsg) {
       setError(errorMsg.message || 'Failed to update system');
@@ -432,7 +427,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
       await toggleSystemStatus(system.id, newStatus, user?.username);
       setSuccess(`✅ System ${system.systemCode} is now ${newStatus}`);
       loadData();
-      // Notify parent to refresh systems list
       if (onSystemChange) onSystemChange();
     } catch (errorMsg) {
       setError(errorMsg.message || 'Failed to change status');
@@ -462,8 +456,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
       setError(errorMsg.message || 'Failed to stop siren');
     }
   };
-
-  // Delete handled via DeleteConfirmationModal (archive + delete flow)
 
   const openDeleteConfirm = (system) => {
     setSystemToDelete(system);
@@ -559,7 +551,7 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                     : 'bg-slate-950/50 hover:bg-slate-800 text-slate-400 border border-slate-800'
                 }`}
               >
-                <Users className="w-4 h-4" /> Users Management
+                <Users className="w-4 h-4" /> Users
               </button>
             )}
             
@@ -572,10 +564,10 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                   : 'bg-slate-950/50 hover:bg-slate-800 text-slate-400 border border-slate-800'
               }`}
             >
-              <Cpu className="w-4 h-4" /> Systems / Devices
+              <Cpu className="w-4 h-4" /> Systems
             </button>
             
-            {/* Archived tab - visible to both roles */}
+            {/* Archived tab - NOW AS A TAB (NOT POPUP) */}
             <button
               onClick={() => { setActiveTab('ARCHIVED'); setError(''); setSuccess(''); }}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono tracking-wider uppercase transition-all ${
@@ -608,26 +600,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
               <Building className="w-3.5 h-3.5" />
               Managing Company: {user.companyName} {user.companyCode && `(${user.companyCode})`}
             </div>
-          )}
-
-          {/* Delete confirmation modal (archive + delete) */}
-          {showDeleteConfirm && systemToDelete && (
-            <DeleteConfirmationModal
-              isOpen={showDeleteConfirm}
-              onClose={closeDeleteConfirm}
-              system={systemToDelete}
-              username={user?.username}
-              onConfirm={handleDeleteConfirmed}
-            />
-          )}
-
-          {/* ========== ARCHIVED SYSTEMS (both roles) ========== */}
-          {activeTab === 'ARCHIVED' && (
-            <ArchivedSystems
-              isOpen={true}
-              onClose={() => { setActiveTab('SYSTEMS'); }}
-              username={user?.username}
-            />
           )}
         </div>
 
@@ -846,7 +818,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                 </h3>
                 
                 <form onSubmit={editingSystem ? handleUpdateSystem : handleCreateSystem} className="grid grid-cols-1 gap-4">
-                  {/* System Code */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono flex items-center gap-2">
                       System Code
@@ -890,7 +861,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                     </p>
                   </div>
 
-                  {/* SIM Card Number */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono">SIM Card Number</label>
                     <input 
@@ -903,7 +873,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                     />
                   </div>
 
-                  {/* Panel SIM Number - Z8B */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono flex items-center gap-2">
                       <Smartphone className="w-3.5 h-3.5" />
@@ -919,7 +888,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                     <p className="text-[8px] text-slate-500">If empty, system SIM will be used</p>
                   </div>
 
-                  {/* Location */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono">Location</label>
                     <input 
@@ -932,9 +900,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                     />
                   </div>
 
-                  {/* ============================================================
-                      COMPANY SELECTION - FIXED FOR BOTH ADMIN AND USER
-                      ============================================================ */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono flex items-center gap-2">
                       <Building className="w-3.5 h-3.5 text-blue-400" />
@@ -948,7 +913,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                     </label>
                     
                     {isAdmin ? (
-                      // ADMIN: Show dropdown to select any company
                       <select
                         value={selectedCompanyId}
                         onChange={(e) => setSelectedCompanyId(e.target.value)}
@@ -962,7 +926,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                         ))}
                       </select>
                     ) : (
-                      // USER: Show their company as read-only
                       <div className="w-full bg-slate-950/50 border border-emerald-500/30 rounded-lg px-3 py-2 text-xs font-mono text-emerald-400 cursor-not-allowed">
                         {user?.companyName || 'No company assigned'}
                         {user?.companyCode && (
@@ -972,7 +935,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                     )}
                   </div>
 
-                  {/* Description */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono">Description</label>
                     <input
@@ -984,7 +946,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                     />
                   </div>
 
-                  {/* Z8B Panel Commands */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono flex items-center gap-2">
                       <Settings className="w-3.5 h-3.5" />
@@ -1015,7 +976,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                     <p className="text-[8px] text-slate-500">Default: 8888#2A (Disarm) | 8888#1A (Arm)</p>
                   </div>
 
-                  {/* Action Buttons */}
                   <div className="flex gap-2 pt-2">
                     {editingSystem && (
                       <button
@@ -1045,7 +1005,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                 </form>
               </div>
 
-              {/* Systems Directory */}
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
                   <h3 className="text-sm font-bold tracking-wide uppercase text-white font-mono">
@@ -1195,7 +1154,15 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
             </>
           )}
 
-          {/* ========== TAB 3: COMPANIES MANAGEMENT (ADMIN ONLY) ========== */}
+          {/* ========== TAB 3: ARCHIVED SYSTEMS ========== */}
+          {activeTab === 'ARCHIVED' && (
+            <ArchivedSystemsInline 
+              username={user?.username}
+              onRefresh={loadData}
+            />
+          )}
+
+          {/* ========== TAB 4: COMPANIES MANAGEMENT (ADMIN ONLY) ========== */}
           {activeTab === 'COMPANIES' && isAdmin && (
             <CompanyManagement
               isOpen={true}
@@ -1394,6 +1361,17 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
           loadData();
         }}
       />
+
+      {/* ========== DELETE CONFIRMATION MODAL ========== */}
+      {showDeleteConfirm && systemToDelete && (
+        <DeleteConfirmationModal
+          isOpen={showDeleteConfirm}
+          onClose={closeDeleteConfirm}
+          system={systemToDelete}
+          username={user?.username}
+          onConfirm={handleDeleteConfirmed}
+        />
+      )}
     </div>
   );
 }
