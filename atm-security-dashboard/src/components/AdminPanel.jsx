@@ -28,6 +28,7 @@ import DeleteConfirmationModal from './DeleteConfirmationModal';
 import ArchivedSystemsInline from './ArchivedSystemsInline';
 import SirenStopModal from './SirenStopModal';
 import CompanyProfile from './CompanyProfile';
+import DeletedSystemsPanel from './DeletedSystemsPanel';
 
 
 export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
@@ -84,6 +85,9 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
 
   // Siren stop modal state
   const [sirenStopSystem, setSirenStopSystem] = useState(null);
+
+  // Deleted Systems Panel state
+  const [showDeletedSystems, setShowDeletedSystems] = useState(false);
 
   const [timeNow, setTimeNow] = useState(new Date());
   
@@ -1042,13 +1046,26 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                   <h3 className="text-sm font-bold tracking-wide uppercase text-white font-mono">
                     {isUserRole ? 'Your Company Systems' : 'Alarm Systems Directory'}
                   </h3>
-                  <button
-                    onClick={loadData}
-                    className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors"
-                    title="Refresh systems"
-                  >
-                    <RefreshCw className="w-4 h-4 text-slate-400" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {/* 🆕 Delete Systems Button - Admin Only */}
+                    {isAdmin && (
+                      <button
+                        onClick={() => setShowDeletedSystems(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 hover:border-red-500 rounded-lg text-xs font-mono transition-all"
+                        title="View and permanently delete systems"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Delete Systems
+                      </button>
+                    )}
+                    <button
+                      onClick={loadData}
+                      className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors"
+                      title="Refresh systems"
+                    >
+                      <RefreshCw className="w-4 h-4 text-slate-400" />
+                    </button>
+                  </div>
                 </div>
                 
                 <div className="divide-y divide-slate-800/60 border border-slate-800 rounded-xl overflow-hidden bg-slate-950/20">
@@ -1459,6 +1476,19 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
             if (onSystemChange) onSystemChange();
           }}
           username={user?.username}
+        />
+      )}
+
+      {/* ========== DELETED SYSTEMS PANEL ========== */}
+      {showDeletedSystems && (
+        <DeletedSystemsPanel
+          isOpen={showDeletedSystems}
+          onClose={() => setShowDeletedSystems(false)}
+          username={user?.username}
+          onSystemDeleted={() => {
+            loadData();
+            if (onSystemChange) onSystemChange();
+          }}
         />
       )}
     </div>

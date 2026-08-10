@@ -645,3 +645,24 @@ export const updateCompanyProfile = async (companyId, companyData, username) => 
     }
     return await response.json();
 };
+
+// 🆕 DELETED SYSTEMS - ADMIN ONLY
+export const getDeletedSystems = async (username) => {
+    const response = await fetch(`${API_BASE_URL}/admin/systems/deleted?username=${encodeURIComponent(username)}`);
+    if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || 'Failed to fetch deleted systems');
+    }
+    return await response.json();
+};
+
+export const permanentDeleteSystem = async (systemId, username) => {
+    const response = await fetch(`${API_BASE_URL}/admin/systems/${systemId}/permanent?username=${encodeURIComponent(username)}`, {
+        method: 'DELETE'
+    });
+    if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || 'Failed to permanently delete system');
+    }
+    return await response.text();
+};

@@ -10,4 +10,7 @@ public interface UserSystemRepository extends JpaRepository<UserSystem, Long> {
     
     @Transactional
     void deleteByUserId(Long userId);
+
+    @Transactional
+    void deleteBySystemId(Long systemId);
 }

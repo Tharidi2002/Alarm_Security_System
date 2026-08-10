@@ -702,4 +702,89 @@ public class AdminController {
         }
         return ip;
     }
+
+    // ============================================================
+    // 🆕 GET DELETED SYSTEMS - ADMIN ONLY
+    // ============================================================
+    @GetMapping("/systems/deleted")
+    public ResponseEntity<?> getDeletedSystems(@RequestParam(required = false) String username) {
+        try {
+            // Only Admin can view deleted systems
+            if (username == null || username.isEmpty() || !permissionService.isAdmin(username)) {
+                return ResponseEntity.status(403).body("Access denied: Only Admin can view deleted systems");
+            }
+            
+            List<AlarmSystem> deletedSystems = alarmSystemRepository.findAllDeleted();
+            return ResponseEntity.ok(deletedSystems);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Error fetching deleted systems: " + e.getMessage());
+        }
+    }
+
+    // ============================================================
+    // 🆕 PERMANENTLY DELETE SYSTEM - ADMIN ONLY
+    // ============================================================
+    @DeleteMapping("/systems/{id}/permanent")
+    public ResponseEntity<?> permanentDeleteSystem(@PathVariable Long id,
+                                                   @RequestParam(required = false) String username) {
+        try {
+            // Only Admin can permanently delete
+            if (username == null || username.isEmpty() || !permissionService.isAdmin(username)) {
+                return ResponseEntity.status(403).body("Access denied: Only Admin can permanently delete systems");
+            }
+            
+            Optional<AlarmSystem> systemOpt = alarmSystemRepository.findById(id);
+            if (systemOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            AlarmSystem system = systemOpt.get();
+            
+            // Check if system is already deleted (soft delete)
+            if (!Boolean.TRUE.equals(system.getDeleted())) {
+                return ResponseEntity.badRequest().body("System is not marked as deleted. Use soft delete first.");
+            }
+            
+            // Delete related data
+            alarmZoneRepository.deleteBySystemId(id);
+            alertLogRepository.deleteByAlarmSystemId(id);
+            
+            // Delete user-system mappings
+            userSystemRepository.deleteBySystemId(id);
+            
+            // Finally, delete the system
+            alarmSystemRepository.deleteById(id);
+            
+            System.out.println("✅ System " + system.getSystemCode() + " permanently deleted by " + username);
+            
+            return ResponseEntity.ok("System permanently deleted successfully");
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Error permanently deleting system: " + e.getMessage());
+        }
+    }
+
+    // ============================================================
+    // 🆕 GET DELETED SYSTEMS BY COMPANY (For future use)
+    // ============================================================
+    @GetMapping("/systems/deleted/company/{companyId}")
+    public ResponseEntity<?> getDeletedSystemsByCompany(@PathVariable Long companyId,
+                                                        @RequestParam(required = false) String username) {
+        try {
+            // Only Admin can view deleted systems
+            if (username == null || username.isEmpty() || !permissionService.isAdmin(username)) {
+                return ResponseEntity.status(403).body("Access denied");
+            }
+            
+            List<AlarmSystem> deletedSystems = alarmSystemRepository.findDeletedByCompanyId(companyId);
+            return ResponseEntity.ok(deletedSystems);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
 }
