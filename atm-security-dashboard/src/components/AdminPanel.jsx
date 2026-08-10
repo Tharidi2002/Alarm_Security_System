@@ -45,6 +45,9 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
   const [newCompanyId, setNewCompanyId] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
+  // ===== FIX: ADD userSearchQuery STATE =====
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+
   // Assign states
   const [selectedUser, setSelectedUser] = useState(null);
   const [userAssignedIds, setUserAssignedIds] = useState([]);
@@ -106,11 +109,30 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
     setError('');
     try {
       const userCompanyId = user?.companyId || user?.company?.id || user?.company?.companyId || null;
-      const [usersData, systemsDataRaw, companiesDataRaw] = await Promise.all([
-        fetchUsers(user?.role === 'USER' ? userCompanyId : null, user?.username),
-        fetchSystems(user?.role === 'USER' ? userCompanyId : null, user?.username),
-        fetchCompanies(user?.username).catch(() => [])
-      ]);
+      
+      // ===== FIX: Wrap API calls with try-catch for network errors =====
+      let usersData = [];
+      let systemsDataRaw = [];
+      let companiesDataRaw = [];
+
+      try {
+        usersData = await fetchUsers(user?.role === 'USER' ? userCompanyId : null, user?.username);
+      } catch (err) {
+        console.error('Failed to fetch users:', err);
+        // Don't set error here, continue with empty data
+      }
+
+      try {
+        systemsDataRaw = await fetchSystems(user?.role === 'USER' ? userCompanyId : null, user?.username);
+      } catch (err) {
+        console.error('Failed to fetch systems:', err);
+      }
+
+      try {
+        companiesDataRaw = await fetchCompanies(user?.username);
+      } catch (err) {
+        console.error('Failed to fetch companies:', err);
+      }
 
       // Client-side safeguard: if current user is a USER, only show data for their company
       const systemsData = (() => {
@@ -144,7 +166,7 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
         await fetchLatestSystemCode();
       }
     } catch (err) {
-      setError('Failed to load data');
+      setError('Failed to load data. Please refresh.');
       console.error('Load data error:', err);
     } finally {
       setLoading(false);
@@ -500,9 +522,9 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
     return parts.length > 0 ? parts.join(', ') : 'just now';
   };
 
-  // Filter users by search query
-  const filteredUsers = users.filter(user => 
-    user.username.toLowerCase().includes(userSearchQuery.toLowerCase())
+  // ===== FIX: Filter users by search query (with safe check) =====
+  const filteredUsers = (users || []).filter(u => 
+    u.username?.toLowerCase().includes((userSearchQuery || '').toLowerCase())
   );
 
   if (!isOpen) return null;
@@ -1025,7 +1047,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                       }
                     </div>
                   ) : (
-                    // In systems.map() loop - Replace the system card
                     systems.map((sys) => {
                       const isActive = sys.status === 'ACTIVE';
                       return (
@@ -1091,9 +1112,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                           </div>
 
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            {/* ============================================================
-                                NEW: Disable buttons for INACTIVE systems
-                                ============================================================ */}
                             {sys.sirenStatus === 'ON' && isActive && (
                               <button
                                 onClick={() => handleStopSirenDirect(sys)}
