@@ -27,6 +27,7 @@ import CompanyManagement from './CompanyManagement';
 import DeleteConfirmationModal from './DeleteConfirmationModal';
 import ArchivedSystemsInline from './ArchivedSystemsInline';
 import SirenStopModal from './SirenStopModal';
+import CompanyProfile from './CompanyProfile';
 
 
 export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
@@ -595,6 +596,20 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
             >
               <Database className="w-4 h-4" /> Archived
             </button>
+            
+            {/* COMPANY tab - For USER only (own company profile) */}
+            {isUserRole && (
+              <button
+                onClick={() => { setActiveTab('COMPANY'); setError(''); setSuccess(''); }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono tracking-wider uppercase transition-all ${
+                  activeTab === 'COMPANY' 
+                    ? 'bg-red-650 text-white border border-red-500 shadow-md shadow-red-500/10' 
+                    : 'bg-slate-950/50 hover:bg-slate-800 text-slate-400 border border-slate-800'
+                }`}
+              >
+                <Building className="w-4 h-4" /> Company
+              </button>
+            )}
             
             {/* Companies tab - Only for ADMIN */}
             {isAdmin && (
@@ -1206,6 +1221,16 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
           {activeTab === 'ARCHIVED' && (
             <ArchivedSystemsInline 
               username={user?.username}
+              onRefresh={loadData}
+            />
+          )}
+
+          {/* ========== TAB: COMPANY PROFILE (USER ONLY) ========== */}
+          {activeTab === 'COMPANY' && isUserRole && (
+            <CompanyProfile
+              companyId={user?.companyId}
+              username={user?.username}
+              userRole={user?.role}
               onRefresh={loadData}
             />
           )}

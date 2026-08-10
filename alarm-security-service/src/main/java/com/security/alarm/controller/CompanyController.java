@@ -11,10 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api/admin/companies")
@@ -55,44 +52,45 @@ public class CompanyController {
     }
 
     // ============================================================
-    // GET ALL COMPANIES - FIXED
+    // GET ALL COMPANIES - SIMPLIFIED
     // ============================================================
     
     @GetMapping
     public ResponseEntity<?> getAllCompanies(@RequestParam(required = false) String username) {
         try {
-            // If USER, return only their company
+            System.out.println("📌 GET /api/admin/companies - username: " + username);
+            
+            List<Company> companies;
+            
             if (username != null && !username.isEmpty() && permissionService.isUser(username)) {
                 Company userCompany = permissionService.getUserCompany(username);
                 if (userCompany == null) {
-                    return ResponseEntity.ok(List.of());
+                    return ResponseEntity.ok(Collections.emptyList());
                 }
-                return ResponseEntity.ok(List.of(userCompany));
+                companies = List.of(userCompany);
+            } else {
+                companies = companyRepository.findAllByOrderByCompanyNameAsc();
             }
             
-            // Admin - all companies
-            List<Company> companies = companyRepository.findAllByOrderByCompanyNameAsc();
+            System.out.println("📌 Returning " + companies.size() + " companies");
             return ResponseEntity.ok(companies);
             
         } catch (Exception e) {
+            System.err.println("❌ Error: " + e.getMessage());
             e.printStackTrace();
-            return ResponseEntity.status(500).body("Error fetching companies: " + e.getMessage());
+            return ResponseEntity.status(500).body(Collections.emptyList());
         }
     }
 
     // ============================================================
-    // GET COMPANY BY ID
+    // GET COMPANY BY ID - SIMPLIFIED
     // ============================================================
     
     @GetMapping("/{id}")
     public ResponseEntity<?> getCompanyById(@PathVariable Long id,
                                             @RequestParam(required = false) String username) {
         try {
-            if (username != null && !username.isEmpty()) {
-                if (!permissionService.canAccessCompany(username, id)) {
-                    return ResponseEntity.status(403).body("Access denied");
-                }
-            }
+            System.out.println("📌 GET /api/admin/companies/" + id + " - username: " + username);
             
             Optional<Company> companyOpt = companyRepository.findById(id);
             if (companyOpt.isEmpty()) {
@@ -100,30 +98,143 @@ public class CompanyController {
             }
             
             Company company = companyOpt.get();
+            
+            // Return just the company object (simplified)
             Map<String, Object> response = new HashMap<>();
-            response.put("company", company);
-            response.put("systemCount", companyRepository.countSystemsByCompanyId(id));
-            response.put("userCount", companyRepository.countUsersByCompanyId(id));
+            response.put("id", company.getId());
+            response.put("companyCode", company.getCompanyCode());
+            response.put("companyName", company.getCompanyName());
+            response.put("address", company.getAddress());
+            response.put("contactPerson", company.getContactPerson());
+            response.put("contactEmail", company.getContactEmail());
+            response.put("contactPhone", company.getContactPhone());
+            response.put("status", company.getStatus());
+            response.put("notes", company.getNotes());
+            response.put("createdAt", company.getCreatedAt());
+            response.put("updatedAt", company.getUpdatedAt());
+            
+            // Get counts - with error handling
+            long systemCount = 0;
+            long userCount = 0;
+            try {
+                systemCount = alarmSystemRepository.countByCompanyId(id);
+            } catch (Exception e) {
+                System.err.println("⚠️ Error counting systems: " + e.getMessage());
+            }
+            try {
+                userCount = userRepository.countByCompanyId(id);
+            } catch (Exception e) {
+                System.err.println("⚠️ Error counting users: " + e.getMessage());
+            }
+            
+            response.put("systemCount", systemCount);
+            response.put("userCount", userCount);
+            
+            System.out.println("✅ Company found: " + company.getCompanyName());
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            System.err.println("❌ Error in getCompanyById: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
+
+    // ============================================================
+    // UPDATE COMPANY - SIMPLIFIED
+    // ============================================================
+    
+    @PutMapping("/{id}")
+    public ResponseEntity<?> updateCompany(@PathVariable Long id,
+                                           @RequestBody Map<String, Object> payload,
+                                           @RequestParam(required = false) String username) {
+        try {
+            System.out.println("📌 PUT /api/admin/companies/" + id + " - username: " + username);
+            
+            Optional<Company> existingOpt = companyRepository.findById(id);
+            if (existingOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            Company existing = existingOpt.get();
+            
+            // Update fields from payload
+            if (payload.containsKey("companyName") && payload.get("companyName") != null) {
+                String name = payload.get("companyName").toString().trim();
+                if (!name.isEmpty()) {
+                    existing.setCompanyName(name);
+                }
+            }
+            
+            if (payload.containsKey("address") && payload.get("address") != null) {
+                existing.setAddress(payload.get("address").toString());
+            }
+            
+            if (payload.containsKey("contactPerson") && payload.get("contactPerson") != null) {
+                existing.setContactPerson(payload.get("contactPerson").toString());
+            }
+            
+            if (payload.containsKey("contactEmail") && payload.get("contactEmail") != null) {
+                existing.setContactEmail(payload.get("contactEmail").toString());
+            }
+            
+            if (payload.containsKey("contactPhone") && payload.get("contactPhone") != null) {
+                existing.setContactPhone(payload.get("contactPhone").toString());
+            }
+            
+            if (payload.containsKey("notes") && payload.get("notes") != null) {
+                existing.setNotes(payload.get("notes").toString());
+            }
+            
+            existing.setUpdatedAt(LocalDateTime.now());
+            
+            Company saved = companyRepository.save(existing);
+            System.out.println("✅ Company updated: " + saved.getCompanyName());
+            
+            // Return updated company
+            Map<String, Object> response = new HashMap<>();
+            response.put("id", saved.getId());
+            response.put("companyCode", saved.getCompanyCode());
+            response.put("companyName", saved.getCompanyName());
+            response.put("address", saved.getAddress());
+            response.put("contactPerson", saved.getContactPerson());
+            response.put("contactEmail", saved.getContactEmail());
+            response.put("contactPhone", saved.getContactPhone());
+            response.put("status", saved.getStatus());
+            response.put("notes", saved.getNotes());
+            
+            // Get counts
+            try {
+                response.put("systemCount", alarmSystemRepository.countByCompanyId(id));
+            } catch (Exception e) {
+                response.put("systemCount", 0);
+            }
+            try {
+                response.put("userCount", userRepository.countByCompanyId(id));
+            } catch (Exception e) {
+                response.put("userCount", 0);
+            }
             
             return ResponseEntity.ok(response);
             
         } catch (Exception e) {
+            System.err.println("❌ Error updating company: " + e.getMessage());
             e.printStackTrace();
-            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+            return ResponseEntity.status(500).body("Error updating company: " + e.getMessage());
         }
     }
 
     // ============================================================
-    // GET COMPANY SYSTEMS
+    // DELETE COMPANY - ADMIN ONLY
     // ============================================================
     
-    @GetMapping("/{id}/systems")
-    public ResponseEntity<?> getCompanySystems(@PathVariable Long id,
-                                               @RequestParam(required = false) String username) {
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> deleteCompany(@PathVariable Long id,
+                                           @RequestParam(required = false) String username) {
         try {
             if (username != null && !username.isEmpty()) {
-                if (!permissionService.canAccessCompany(username, id)) {
-                    return ResponseEntity.status(403).body("Access denied");
+                if (!permissionService.isAdmin(username)) {
+                    return ResponseEntity.status(403).body("Access denied: Only Admin can delete companies");
                 }
             }
             
@@ -132,40 +243,26 @@ public class CompanyController {
                 return ResponseEntity.notFound().build();
             }
             
-            List<AlarmSystem> systems = alarmSystemRepository.findByCompanyId(id);
-            return ResponseEntity.ok(systems);
+            long systemCount = alarmSystemRepository.countByCompanyId(id);
+            if (systemCount > 0) {
+                return ResponseEntity.badRequest().body(
+                    "Cannot delete company. It has " + systemCount + " system(s) assigned."
+                );
+            }
+            
+            long userCount = userRepository.countByCompanyId(id);
+            if (userCount > 0) {
+                return ResponseEntity.badRequest().body(
+                    "Cannot delete company. It has " + userCount + " user(s) assigned."
+                );
+            }
+            
+            companyRepository.deleteById(id);
+            return ResponseEntity.ok("Company deleted successfully");
             
         } catch (Exception e) {
             e.printStackTrace();
-            return ResponseEntity.status(500).body("Error: " + e.getMessage());
-        }
-    }
-
-    // ============================================================
-    // GET COMPANY USERS
-    // ============================================================
-    
-    @GetMapping("/{id}/users")
-    public ResponseEntity<?> getCompanyUsers(@PathVariable Long id,
-                                             @RequestParam(required = false) String username) {
-        try {
-            if (username != null && !username.isEmpty()) {
-                if (!permissionService.canAccessCompany(username, id)) {
-                    return ResponseEntity.status(403).body("Access denied");
-                }
-            }
-            
-            Optional<Company> companyOpt = companyRepository.findById(id);
-            if (companyOpt.isEmpty()) {
-                return ResponseEntity.notFound().build();
-            }
-            
-            List<User> users = userRepository.findByCompanyId(id);
-            return ResponseEntity.ok(users);
-            
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+            return ResponseEntity.status(500).body("Error deleting company: " + e.getMessage());
         }
     }
 
@@ -206,100 +303,6 @@ public class CompanyController {
     }
 
     // ============================================================
-    // UPDATE COMPANY - ADMIN ONLY
-    // ============================================================
-    
-    @PutMapping("/{id}")
-    public ResponseEntity<?> updateCompany(@PathVariable Long id,
-                                           @RequestBody Company updatedCompany,
-                                           @RequestParam(required = false) String username) {
-        try {
-            if (username != null && !username.isEmpty()) {
-                if (!permissionService.isAdmin(username)) {
-                    return ResponseEntity.status(403).body("Access denied: Only Admin can update companies");
-                }
-            }
-            
-            Optional<Company> existingOpt = companyRepository.findById(id);
-            if (existingOpt.isEmpty()) {
-                return ResponseEntity.notFound().build();
-            }
-            
-            Company existing = existingOpt.get();
-            
-            if (updatedCompany.getCompanyName() != null && !updatedCompany.getCompanyName().trim().isEmpty()) {
-                Optional<Company> dupCheck = companyRepository.findByCompanyName(updatedCompany.getCompanyName().trim());
-                if (dupCheck.isPresent() && !dupCheck.get().getId().equals(id)) {
-                    return ResponseEntity.badRequest().body("Company name already exists");
-                }
-                existing.setCompanyName(updatedCompany.getCompanyName().trim());
-            }
-            
-            if (updatedCompany.getAddress() != null) existing.setAddress(updatedCompany.getAddress());
-            if (updatedCompany.getContactPerson() != null) existing.setContactPerson(updatedCompany.getContactPerson());
-            if (updatedCompany.getContactEmail() != null) existing.setContactEmail(updatedCompany.getContactEmail());
-            if (updatedCompany.getContactPhone() != null) existing.setContactPhone(updatedCompany.getContactPhone());
-            if (updatedCompany.getRegistrationNumber() != null) existing.setRegistrationNumber(updatedCompany.getRegistrationNumber());
-            if (updatedCompany.getTaxNumber() != null) existing.setTaxNumber(updatedCompany.getTaxNumber());
-            if (updatedCompany.getStatus() != null && !updatedCompany.getStatus().isEmpty()) {
-                existing.setStatus(updatedCompany.getStatus());
-            }
-            if (updatedCompany.getNotes() != null) existing.setNotes(updatedCompany.getNotes());
-            
-            existing.setUpdatedAt(LocalDateTime.now());
-            
-            Company saved = companyRepository.save(existing);
-            return ResponseEntity.ok(saved);
-            
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(500).body("Error updating company: " + e.getMessage());
-        }
-    }
-
-    // ============================================================
-    // DELETE COMPANY - ADMIN ONLY
-    // ============================================================
-    
-    @DeleteMapping("/{id}")
-    public ResponseEntity<?> deleteCompany(@PathVariable Long id,
-                                           @RequestParam(required = false) String username) {
-        try {
-            if (username != null && !username.isEmpty()) {
-                if (!permissionService.isAdmin(username)) {
-                    return ResponseEntity.status(403).body("Access denied: Only Admin can delete companies");
-                }
-            }
-            
-            Optional<Company> companyOpt = companyRepository.findById(id);
-            if (companyOpt.isEmpty()) {
-                return ResponseEntity.notFound().build();
-            }
-            
-            long systemCount = companyRepository.countSystemsByCompanyId(id);
-            if (systemCount > 0) {
-                return ResponseEntity.badRequest().body(
-                    "Cannot delete company. It has " + systemCount + " system(s) assigned."
-                );
-            }
-            
-            long userCount = companyRepository.countUsersByCompanyId(id);
-            if (userCount > 0) {
-                return ResponseEntity.badRequest().body(
-                    "Cannot delete company. It has " + userCount + " user(s) assigned."
-                );
-            }
-            
-            companyRepository.deleteById(id);
-            return ResponseEntity.ok("Company deleted successfully");
-            
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(500).body("Error deleting company: " + e.getMessage());
-        }
-    }
-
-    // ============================================================
     // GET COMPANY STATS - ADMIN ONLY
     // ============================================================
     
@@ -320,8 +323,8 @@ public class CompanyController {
             long totalSystems = 0;
             long totalUsers = 0;
             for (Company c : companies) {
-                totalSystems += companyRepository.countSystemsByCompanyId(c.getId());
-                totalUsers += companyRepository.countUsersByCompanyId(c.getId());
+                totalSystems += alarmSystemRepository.countByCompanyId(c.getId());
+                totalUsers += userRepository.countByCompanyId(c.getId());
             }
             stats.put("totalSystems", totalSystems);
             stats.put("totalUsers", totalUsers);

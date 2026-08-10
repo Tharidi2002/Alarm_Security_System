@@ -3,6 +3,7 @@ package com.security.alarm.repository;
 import com.security.alarm.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,4 +22,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
     // ===== COMPANY METHODS =====
     List<User> findByCompanyId(Long companyId);
     List<User> findByCompanyIdAndRole(Long companyId, String role);
+    
+    // ===== NEW: Count users by company =====
+    @Query("SELECT COUNT(u) FROM User u WHERE u.company.id = :companyId")
+    long countByCompanyId(@Param("companyId") Long companyId);
 }

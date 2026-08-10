@@ -23,7 +23,9 @@ public interface AlarmSystemRepository extends JpaRepository<AlarmSystem, Long> 
     
     List<AlarmSystem> findByCompanyIdAndStatus(Long companyId, String status);
     
-    long countByCompanyId(Long companyId);
+    // ⚠️ මෙය පමණක් තබන්න - duplicate එකක් නැති බවට වග බලාගන්න
+    @Query("SELECT COUNT(s) FROM AlarmSystem s WHERE s.company.id = :companyId AND (s.deleted = false OR s.deleted IS NULL)")
+    long countByCompanyId(@Param("companyId") Long companyId);
     
     List<AlarmSystem> findByCompanyIdOrderBySystemCodeAsc(Long companyId);
     
@@ -31,10 +33,9 @@ public interface AlarmSystemRepository extends JpaRepository<AlarmSystem, Long> 
     Optional<String> findLatestSystemCode();
     
     // ============================================================
-    // NEW: SOFT DELETE METHODS
+    // SOFT DELETE METHODS
     // ============================================================
     
-    // Only get non-deleted systems
     @Query("SELECT s FROM AlarmSystem s WHERE s.deleted = false OR s.deleted IS NULL")
     List<AlarmSystem> findAllActive();
     
@@ -47,22 +48,18 @@ public interface AlarmSystemRepository extends JpaRepository<AlarmSystem, Long> 
     @Query("SELECT s FROM AlarmSystem s WHERE s.deleted = false AND s.systemCode = :systemCode")
     Optional<AlarmSystem> findActiveBySystemCode(@Param("systemCode") String systemCode);
     
-    // Get deleted systems (for admin view)
     @Query("SELECT s FROM AlarmSystem s WHERE s.deleted = true")
     List<AlarmSystem> findAllDeleted();
     
     @Query("SELECT s FROM AlarmSystem s WHERE s.deleted = true AND s.company.id = :companyId")
     List<AlarmSystem> findDeletedByCompanyId(@Param("companyId") Long companyId);
     
-    // Get systems deleted before cutoff (for auto-delete)
     @Query("SELECT s FROM AlarmSystem s WHERE s.deleted = true AND s.deletedAt < :cutoff")
     List<AlarmSystem> findDeletedBefore(@Param("cutoff") LocalDateTime cutoff);
     
-    // Count active systems
     @Query("SELECT COUNT(s) FROM AlarmSystem s WHERE s.deleted = false")
     long countActive();
     
-    // Permanent delete (admin only)
     @Modifying
     @Transactional
     @Query("DELETE FROM AlarmSystem s WHERE s.id = :id AND s.deleted = true")

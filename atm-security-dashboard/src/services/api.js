@@ -1,8 +1,7 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 
-// ============================================================
+
 // AUTH & USER
-// ============================================================
 
 export const login = async (username, password) => {
   const response = await fetch(`${API_BASE_URL}/auth/login`, {
@@ -23,9 +22,8 @@ export const getCurrentUser = async (username) => {
   return await response.json();
 };
 
-// ============================================================
+
 // SYSTEM CODE - NEW
-// ============================================================
 
 export const getNextSystemCode = async () => {
   const response = await fetch(`${API_BASE_URL}/admin/systems/next-code`);
@@ -36,9 +34,8 @@ export const getNextSystemCode = async () => {
   return await response.json();
 };
 
-// ============================================================
+
 // ALERTS - COMPANY-BASED
-// ============================================================
 
 export const fetchAlerts = async (username) => {
   try {
@@ -104,9 +101,8 @@ export const getPendingCount = async (username) => {
   }
 };
 
-// ============================================================
+
 // USERS - WITH COMPANY
-// ============================================================
 
 export const fetchUsers = async (companyId, username) => {
   let url = `${API_BASE_URL}/admin/users`;
@@ -167,9 +163,8 @@ export const assignSystems = async (userId, systemIds) => {
   return true;
 };
 
-// ============================================================
+
 // SYSTEMS - COMPANY-BASED (ONLY ACTIVE FOR DROPDOWN)
-// ============================================================
 
 export const fetchSystems = async (companyId, username) => {
   let url = `${API_BASE_URL}/admin/systems`;
@@ -199,10 +194,9 @@ export const fetchSystems = async (companyId, username) => {
   const data = await response.json();
   console.log('Systems fetched:', data);
   
-  // ============================================================
+  
   // NEW: Return ALL systems (filtering done in components)
   // But we keep ALL data for Admin Panel
-  // ============================================================
   return data;
 };
 
@@ -305,9 +299,8 @@ export const deleteSystem = async (systemId, username) => {
   }
 };
 
-// ============================================================
+
 // SYSTEM COMMANDS
-// ============================================================
 
 export const disarmSystem = async (systemCode, triggeredBy, username) => {
   let url = `${API_BASE_URL}/alerts/disarm`;
@@ -353,9 +346,8 @@ export const sendSystemCommand = async (atmCode, command, username) => {
   return await response.json();
 };
 
-// ============================================================
+
 // COMPANIES
-// ============================================================
 
 export const fetchCompanies = async (username) => {
   let url = `${API_BASE_URL}/admin/companies`;
@@ -437,9 +429,8 @@ export const deleteCompany = async (companyId, username) => {
   return true;
 };
 
-// ============================================================
+
 // ZONES
-// ============================================================
 
 export const fetchZones = async (systemId, username) => {
   let url = `${API_BASE_URL}/admin/zones/system/${systemId}`;
@@ -481,9 +472,8 @@ export const fetchZoneTypes = async () => {
   return await response.json();
 };
 
-// ============================================================
+
 // REPORTS - COMPANY-BASED
-// ============================================================
 
 export const getReportSummary = async (from, to, username, systemCode) => {
   const params = new URLSearchParams();
@@ -539,9 +529,8 @@ export const getReportSystems = async (username) => {
   return await response.json();
 };
 
-// ============================================================
+
 // ARCHIVE SYSTEM
-// ============================================================
 
 export const checkDeletionEligibility = async (systemId, username) => {
   const url = `${API_BASE_URL}/admin/archive/systems/${systemId}/check?username=${encodeURIComponent(username)}`;
@@ -587,9 +576,8 @@ export const downloadArchiveReport = async (archiveId, username) => {
   return await response.json();
 };
 
-// ============================================================
-// NEW: Fetch ONLY ACTIVE systems for Navbar
-// ============================================================
+
+// Fetch ONLY ACTIVE systems for Navbar
 export const fetchActiveSystems = async (companyId, username) => {
   const allSystems = await fetchSystems(companyId, username);
   // Filter only ACTIVE systems
@@ -605,9 +593,8 @@ export const simulateSMS = async (data) => {
     
     const result = await response.json();
     
-    // ============================================================
+    
     // Check if rejected
-    // ============================================================
     if (result.rejected) {
         console.warn('⚠️ Alert rejected:', result.reason);
         // Show toast: "System is INACTIVE. Alert rejected."
@@ -632,4 +619,29 @@ export const checkServerHealth = async () => {
         console.error('Server health check failed:', error.message);
         return false;
     }
+};
+
+
+// COMPANY PROFILE - FOR USER
+
+export const getCompanyProfile = async (companyId, username) => {
+    const response = await fetch(`${API_BASE_URL}/admin/companies/${companyId}?username=${encodeURIComponent(username)}`);
+    if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || 'Failed to fetch company profile');
+    }
+    return await response.json();
+};
+
+export const updateCompanyProfile = async (companyId, companyData, username) => {
+    const response = await fetch(`${API_BASE_URL}/admin/companies/${companyId}?username=${encodeURIComponent(username)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(companyData)
+    });
+    if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || 'Failed to update company profile');
+    }
+    return await response.json();
 };
