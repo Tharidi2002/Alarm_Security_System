@@ -616,3 +616,20 @@ export const simulateSMS = async (data) => {
     
     return { success: true, alert: result };
 };
+
+
+// SERVER HEALTH CHECK
+export const checkServerHealth = async () => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/auth/check-admin`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+            // Timeout after 5 seconds
+            signal: AbortSignal.timeout(5000)
+        });
+        return response.ok;
+    } catch (error) {
+        console.error('Server health check failed:', error.message);
+        return false;
+    }
+};

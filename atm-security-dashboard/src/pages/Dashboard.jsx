@@ -38,7 +38,7 @@ export default function Dashboard({ user, onLogout }) {
       
       <main className="p-3 sm:p-4 md:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fade-in">
         
-        {/* NEW: Company Scope Alert Notification */}
+        {/* Company Scope Alert */}
         {user.role === 'USER' && user.companyName && (
           <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 font-mono text-[10px] sm:text-xs text-slate-400">
             <div className="flex items-center gap-1 flex-wrap">
@@ -81,7 +81,6 @@ export default function Dashboard({ user, onLogout }) {
         />
       </main>
 
-      {/* NEW: Pass user to AdminPanel for role-based access */}
       <AdminPanel 
         isOpen={isAdminPanelOpen} 
         onClose={() => setIsAdminPanelOpen(false)}

@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import './index.css';
+import { checkServerHealth } from './services/api';
 
 function App() {
   const [user, setUser] = useState(() => {
@@ -12,6 +13,23 @@ function App() {
 
   const [showRegister, setShowRegister] = useState(false);
   const [registerUnlocked, setRegisterUnlocked] = useState(false);
+  const [serverOnline, setServerOnline] = useState(true);
+
+  // ===== CHECK SERVER ON APP LOAD =====
+  useEffect(() => {
+    const checkServer = async () => {
+      const isOnline = await checkServerHealth();
+      setServerOnline(isOnline);
+      if (!isOnline && user) {
+        console.warn('⚠️ Server is offline. Some features may not work.');
+      }
+    };
+    checkServer();
+    
+    // Check every 30 seconds
+    const interval = setInterval(checkServer, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   const handleLoginSuccess = (userData) => {
     localStorage.setItem('user', JSON.stringify(userData));
