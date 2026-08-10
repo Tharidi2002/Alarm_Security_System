@@ -11,6 +11,9 @@ import java.util.List;
 
 public interface AlertLogRepository extends JpaRepository<AlertLog, Long> {
     
+    // ============================================================
+    // EXISTING QUERIES - Keep as is
+    // ============================================================
     List<AlertLog> findAllByOrderByReceivedAtDesc();
     
     List<AlertLog> findAllByAlarmSystemIdInOrderByReceivedAtDesc(List<Long> systemIds);
@@ -41,9 +44,6 @@ public interface AlertLogRepository extends JpaRepository<AlertLog, Long> {
     
     List<AlertLog> findByAlarmSystemId(Long systemId);
     
-    // ============================================================
-    // NEW: For Archive/Delete
-    // ============================================================
     @Modifying
     @Transactional
     @Query("DELETE FROM AlertLog a WHERE a.alarmSystem.id = :systemId")
@@ -52,7 +52,6 @@ public interface AlertLogRepository extends JpaRepository<AlertLog, Long> {
     @Query("SELECT a FROM AlertLog a WHERE a.alarmSystem.id = :systemId ORDER BY a.receivedAt DESC")
     List<AlertLog> findByAlarmSystemIdOrderByReceivedAtDesc(@Param("systemId") Long systemId);
     
-    // Company based queries
     @Query("SELECT a FROM AlertLog a WHERE a.alarmSystem.company.id = :companyId ORDER BY a.receivedAt DESC")
     List<AlertLog> findByCompanyId(@Param("companyId") Long companyId);
     
@@ -61,4 +60,42 @@ public interface AlertLogRepository extends JpaRepository<AlertLog, Long> {
     
     @Query("SELECT COUNT(a) FROM AlertLog a WHERE a.alarmSystem.company.id = :companyId AND a.status = 'PENDING'")
     long countPendingByCompanyId(@Param("companyId") Long companyId);
+
+    // ============================================================
+    // NEW: EXCLUDE REJECTED ALERTS
+    // ============================================================
+    
+    // Get all alerts EXCEPT REJECTED
+    @Query("SELECT a FROM AlertLog a WHERE a.status != 'REJECTED' ORDER BY a.receivedAt DESC")
+    List<AlertLog> findAllActiveAlerts();
+    
+    // Get alerts by system IDs EXCEPT REJECTED
+    @Query("SELECT a FROM AlertLog a WHERE a.alarmSystem.id IN :systemIds AND a.status != 'REJECTED' ORDER BY a.receivedAt DESC")
+    List<AlertLog> findAllByAlarmSystemIdInAndNotRejected(@Param("systemIds") List<Long> systemIds);
+    
+    // Count pending alerts EXCEPT REJECTED
+    @Query("SELECT COUNT(a) FROM AlertLog a WHERE a.status = 'PENDING' AND a.status != 'REJECTED'")
+    long countPendingActive();
+    
+    // Count by system and status EXCEPT REJECTED
+    @Query("SELECT COUNT(a) FROM AlertLog a WHERE a.alarmSystem.id = :systemId AND a.status = :status AND a.status != 'REJECTED'")
+    long countByAlarmSystemIdAndStatusActive(@Param("systemId") Long systemId, @Param("status") String status);
+    
+    // Get pending alerts EXCEPT REJECTED
+    @Query("SELECT a FROM AlertLog a WHERE a.status = 'PENDING' AND a.status != 'REJECTED' ORDER BY a.receivedAt DESC")
+    List<AlertLog> findPendingAlerts();
+    
+    // Get alerts by status EXCEPT REJECTED
+    @Query("SELECT a FROM AlertLog a WHERE a.status = :status AND a.status != 'REJECTED' ORDER BY a.receivedAt DESC")
+    List<AlertLog> findByStatusActive(@Param("status") String status);
+    
+    // Company-based EXCEPT REJECTED
+    @Query("SELECT a FROM AlertLog a WHERE a.alarmSystem.company.id = :companyId AND a.status != 'REJECTED' ORDER BY a.receivedAt DESC")
+    List<AlertLog> findByCompanyIdActive(@Param("companyId") Long companyId);
+    
+    @Query("SELECT a FROM AlertLog a WHERE a.alarmSystem.company.id = :companyId AND a.status = :status AND a.status != 'REJECTED' ORDER BY a.receivedAt DESC")
+    List<AlertLog> findByCompanyIdAndStatusActive(@Param("companyId") Long companyId, @Param("status") String status);
+    
+    @Query("SELECT COUNT(a) FROM AlertLog a WHERE a.alarmSystem.company.id = :companyId AND a.status = 'PENDING' AND a.status != 'REJECTED'")
+    long countPendingByCompanyIdActive(@Param("companyId") Long companyId);
 }

@@ -40,9 +40,6 @@ public class SmsService {
 
     /**
      * Send SMS to the specified phone number
-     * @param phoneNumber - Recipient phone number
-     * @param message - SMS content
-     * @return true if sent successfully, false otherwise
      */
     public boolean sendSms(String phoneNumber, String message) {
         if (phoneNumber == null || phoneNumber.trim().isEmpty()) {
@@ -74,7 +71,7 @@ public class SmsService {
     }
 
     /**
-     * Send SMS via HTTP Gateway (e.g., TextLocal, SMS.to, etc.)
+     * Send SMS via HTTP Gateway
      */
     private boolean sendViaHttp(String phoneNumber, String message) throws Exception {
         String encodedMessage = URLEncoder.encode(message, "UTF-8");
@@ -108,23 +105,9 @@ public class SmsService {
      */
     private boolean sendViaTwilio(String phoneNumber, String message) {
         try {
-            // Twilio SDK is loaded via dependency
-            // Uncomment when Twilio credentials are configured
-            /*
-            Twilio.init(twilioAccountSid, twilioAuthToken);
-            Message.creator(
-                new PhoneNumber(phoneNumber),
-                new PhoneNumber(twilioPhoneNumber),
-                message
-            ).create();
-            logger.info("SMS sent successfully via Twilio");
-            return true;
-            */
-            
-            // Placeholder - implement when Twilio is configured
+            // Twilio SDK implementation
             logger.warn("Twilio not configured - using fallback HTTP gateway");
             return sendViaHttp(phoneNumber, message);
-            
         } catch (Exception e) {
             logger.error("Twilio send failed: {}", e.getMessage());
             return false;
@@ -133,10 +116,6 @@ public class SmsService {
 
     /**
      * Send command to Z8B Panel
-     * @param panelSimNumber - Panel's SIM number
-     * @param panelPassword - Panel password (default 8888)
-     * @param commandCode - Command code (1A=Arm, 2A=Disarm, 5A=Siren Stop)
-     * @return true if sent successfully
      */
     public boolean sendPanelCommand(String panelSimNumber, String panelPassword, String commandCode) {
         if (panelSimNumber == null || panelSimNumber.trim().isEmpty()) {

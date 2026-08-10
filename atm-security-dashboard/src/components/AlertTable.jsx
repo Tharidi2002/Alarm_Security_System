@@ -31,6 +31,9 @@ export default function AlertTable({ alerts, loading, tableContainerRef, usernam
     const status = alert.status || '';
     const lowerType = alertType.toLowerCase();
     
+    if (status === 'REJECTED') {
+      return 'REJECTED';
+    }
     if (lowerType.includes('call incoming') || lowerType.includes('call from') || 
         lowerType.includes('incoming call') || status === 'CALL') {
       return 'CALL';
@@ -52,6 +55,7 @@ export default function AlertTable({ alerts, loading, tableContainerRef, usernam
 
   const getCategoryColor = (category) => {
     switch(category) {
+      case 'REJECTED': return 'text-slate-400 bg-slate-500/10 border-slate-500/20';
       case 'CALL': return 'text-blue-400 bg-blue-500/10 border-blue-500/20';
       case 'ARMED': return 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20';
       case 'RESOLVED': return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
@@ -63,6 +67,7 @@ export default function AlertTable({ alerts, loading, tableContainerRef, usernam
 
   const getCategoryShort = (category) => {
     switch(category) {
+      case 'REJECTED': return '🚫 Rejected';
       case 'CALL': return 'Call';
       case 'ARMED': return 'ARMED';
       case 'RESOLVED': return 'Done';
@@ -164,6 +169,7 @@ export default function AlertTable({ alerts, loading, tableContainerRef, usernam
       { value: 'ARMED', label: '🟡 ARMED' },
       { value: 'RESOLVED', label: '✅ Done' },
       { value: 'SIREN_STOP', label: '🔕 Siren Stop' },
+      { value: 'REJECTED', label: '🚫 Rejected' },
       { value: 'OTHER', label: '📌 Other' }
     ];
 

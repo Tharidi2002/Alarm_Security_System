@@ -11,23 +11,31 @@ export default function Navbar({ user, onLogout, onOpenAdminPanel, onRefresh, on
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // ============================================================
-  // FIXED: Load systems with username - Memoized with useCallback
+  // Load systems - ONLY ACTIVE SYSTEMS (NEW)
   // ============================================================
   const loadSystems = useCallback(async () => {
     if (!user?.username) return;
     
     try {
-      console.log('Navbar: Loading systems for user:', user.username);
-      const data = await fetchSystems(user?.role === 'USER' ? user.companyId : null, user.username);
-      console.log('Navbar: Systems loaded:', data);
+      console.log('Navbar: Loading ACTIVE systems for user:', user.username);
       
-      if (data && data.length > 0) {
-        setSystems(data);
-        // Keep selected system if it still exists, otherwise select first
-        if (selectedSystem && data.some(s => s.systemCode === selectedSystem)) {
+      // Fetch all systems first
+      const data = await fetchSystems(user?.role === 'USER' ? user.companyId : null, user.username);
+      console.log('Navbar: All systems loaded:', data);
+      
+      // ============================================================
+      // NEW: Filter ONLY ACTIVE systems
+      // ============================================================
+      const activeSystems = (data || []).filter(sys => sys.status === 'ACTIVE');
+      console.log('Navbar: ACTIVE systems:', activeSystems);
+      
+      if (activeSystems.length > 0) {
+        setSystems(activeSystems);
+        // Keep selected system if it still exists and is active
+        if (selectedSystem && activeSystems.some(s => s.systemCode === selectedSystem)) {
           // Keep current selection
         } else {
-          setSelectedSystem(data[0].systemCode);
+          setSelectedSystem(activeSystems[0].systemCode);
         }
       } else {
         setSystems([]);
@@ -38,17 +46,17 @@ export default function Navbar({ user, onLogout, onOpenAdminPanel, onRefresh, on
       setSystems([]);
       setSelectedSystem('');
     }
-  }, [user?.username, selectedSystem]);
+  }, [user?.username, user?.role, user?.companyId, selectedSystem]);
 
   // ============================================================
-  // FIXED: Load on mount and when username changes
+  // Load on mount and when username changes
   // ============================================================
   useEffect(() => {
     loadSystems();
   }, [loadSystems]);
 
   // ============================================================
-  // FIXED: Expose reload function to parent via onRefresh prop
+  // Expose reload function to parent
   // ============================================================
   const handleRefresh = useCallback(async () => {
     await loadSystems();
@@ -116,7 +124,7 @@ export default function Navbar({ user, onLogout, onOpenAdminPanel, onRefresh, on
 
         <div className={`${mobileMenuOpen ? 'flex' : 'hidden'} lg:flex flex-col lg:flex-row items-center gap-2 sm:gap-3 w-full lg:w-auto`}>
           
-          {/* ARM/DISARM Controls */}
+          {/* ARM/DISARM Controls - Only shows if there are ACTIVE systems */}
           <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 w-full lg:w-auto">
             {systems.length > 0 ? (
               <>
@@ -150,7 +158,7 @@ export default function Navbar({ user, onLogout, onOpenAdminPanel, onRefresh, on
               </>
             ) : (
               <span className="text-xs text-slate-500 font-mono px-2 py-1">
-                No systems available
+                No active systems
               </span>
             )}
           </div>

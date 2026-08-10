@@ -168,7 +168,7 @@ export const assignSystems = async (userId, systemIds) => {
 };
 
 // ============================================================
-// SYSTEMS - COMPANY-BASED
+// SYSTEMS - COMPANY-BASED (ONLY ACTIVE FOR DROPDOWN)
 // ============================================================
 
 export const fetchSystems = async (companyId, username) => {
@@ -198,6 +198,11 @@ export const fetchSystems = async (companyId, username) => {
   
   const data = await response.json();
   console.log('Systems fetched:', data);
+  
+  // ============================================================
+  // NEW: Return ALL systems (filtering done in components)
+  // But we keep ALL data for Admin Panel
+  // ============================================================
   return data;
 };
 
@@ -580,4 +585,34 @@ export const downloadArchiveReport = async (archiveId, username) => {
   const response = await fetch(url);
   if (!response.ok) throw new Error('Failed to download archive report');
   return await response.json();
+};
+
+// ============================================================
+// NEW: Fetch ONLY ACTIVE systems for Navbar
+// ============================================================
+export const fetchActiveSystems = async (companyId, username) => {
+  const allSystems = await fetchSystems(companyId, username);
+  // Filter only ACTIVE systems
+  return (allSystems || []).filter(sys => sys.status === 'ACTIVE');
+};
+
+export const simulateSMS = async (data) => {
+    const response = await fetch(`${API_BASE_URL}/alerts/sms-simulate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
+    
+    const result = await response.json();
+    
+    // ============================================================
+    // Check if rejected
+    // ============================================================
+    if (result.rejected) {
+        console.warn('⚠️ Alert rejected:', result.reason);
+        // Show toast: "System is INACTIVE. Alert rejected."
+        return { success: false, rejected: true, reason: result.reason };
+    }
+    
+    return { success: true, alert: result };
 };

@@ -29,17 +29,18 @@ export function useAlerts(username) {
       }
 
       const data = await fetchAlerts(username);
+      const filteredData = (data || []).filter(alert => alert.status !== 'REJECTED');
       
-      const currentIds = new Set(data.map(a => a.id));
-      const newAlerts = data.filter(a => !previousAlertIds.current.has(a.id));
+      const currentIds = new Set(filteredData.map(a => a.id));
+      const newAlerts = filteredData.filter(a => !previousAlertIds.current.has(a.id));
       
       if (newAlerts.length > 0 && previousAlertIds.current.size > 0) {
         setNewAlert(newAlerts[0]);
       }
       
       previousAlertIds.current = currentIds;
-      setAlerts(data);
-      setStats(calculateStats(data));
+      setAlerts(filteredData);
+      setStats(calculateStats(filteredData));
       
       setTimeout(() => {
         if (tableContainerRef.current) {

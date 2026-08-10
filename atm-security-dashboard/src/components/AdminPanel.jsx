@@ -1030,13 +1030,23 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                       }
                     </div>
                   ) : (
+                    // In systems.map() loop - Replace the system card
                     systems.map((sys) => {
                       const isActive = sys.status === 'ACTIVE';
                       return (
-                        <div key={sys.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-900/10 transition-colors">
+                        <div 
+                          key={sys.id} 
+                          className={`p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-900/10 transition-colors ${
+                            !isActive ? 'opacity-60' : ''
+                          }`}
+                        >
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-mono font-bold text-sm text-emerald-400">{sys.systemCode}</span>
+                              <span className={`font-mono font-bold text-sm ${
+                                isActive ? 'text-emerald-400' : 'text-red-400'
+                              }`}>
+                                {sys.systemCode}
+                              </span>
                               <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
                                 isActive 
                                   ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
@@ -1059,6 +1069,11 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                                   {sys.sirenStatus === 'ON' ? '🔔 SIREN ON' : '🔕 SIREN OFF'}
                                 </span>
                               )}
+                              {!isActive && (
+                                <span className="text-[8px] font-mono px-1.5 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+                                  ⚠️ DISABLED
+                                </span>
+                              )}
                             </div>
                             <div className="text-xs text-slate-400 mt-1">
                               Location: <span className="text-slate-300 font-medium">{sys.location}</span> • SIM: <span className="font-mono text-slate-300">{sys.simNumber}</span>
@@ -1071,7 +1086,9 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                             )}
                             <div className="text-[10px] text-slate-500 mt-0.5 font-mono">
                               {isActive ? 'Active for: ' : 'Inactive for: '} 
-                              <span className="text-red-400/90 font-bold">{formatDuration(sys.lastStatusChangedAt)}</span>
+                              <span className={isActive ? 'text-emerald-400/90 font-bold' : 'text-red-400/90 font-bold'}>
+                                {formatDuration(sys.lastStatusChangedAt)}
+                              </span>
                               {sys.disarmCommand && (
                                 <span className="ml-3 text-cyan-400">Disarm: <span className="font-mono">{sys.disarmCommand}</span></span>
                               )}
@@ -1079,7 +1096,10 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                           </div>
 
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            {sys.sirenStatus === 'ON' && (
+                            {/* ============================================================
+                                NEW: Disable buttons for INACTIVE systems
+                                ============================================================ */}
+                            {sys.sirenStatus === 'ON' && isActive && (
                               <button
                                 onClick={() => handleStopSirenDirect(sys.systemCode)}
                                 title="Stop Siren Only"
@@ -1091,16 +1111,26 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
 
                             <button
                               onClick={() => handleSendCommand(sys.systemCode, 'ARM')}
-                              title="Arm System"
-                              className="p-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded-lg transition-all"
+                              disabled={!isActive}
+                              title={isActive ? "Arm System" : "System is INACTIVE"}
+                              className={`p-1.5 border rounded-lg transition-all ${
+                                isActive
+                                  ? 'bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+                                  : 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed opacity-50'
+                              }`}
                             >
                               <Zap className="w-4 h-4" />
                             </button>
 
                             <button
                               onClick={() => handleSendCommand(sys.systemCode, 'DISARM')}
-                              title="Disarm System & Resolve Alerts"
-                              className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg transition-all"
+                              disabled={!isActive}
+                              title={isActive ? "Disarm System & Resolve Alerts" : "System is INACTIVE"}
+                              className={`p-1.5 border rounded-lg transition-all ${
+                                isActive
+                                  ? 'bg-red-500/10 hover:bg-red-500/20 text-red-400 border-red-500/30'
+                                  : 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed opacity-50'
+                              }`}
                             >
                               <ShieldOff className="w-4 h-4" />
                             </button>
@@ -1111,7 +1141,7 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                               className={`p-1.5 rounded-lg border transition-all ${
                                 isActive 
                                   ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border-emerald-500/25' 
-                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700'
+                                  : 'bg-red-500/10 hover:bg-red-500/20 text-red-400 border-red-500/25'
                               }`}
                             >
                               {isActive ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
@@ -1132,7 +1162,12 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                                 setZoneManagementOpen(true);
                               }}
                               title="Manage Zones"
-                              className="p-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg transition-all"
+                              className={`p-1.5 border rounded-lg transition-all ${
+                                isActive
+                                  ? 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border-blue-500/30'
+                                  : 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed opacity-50'
+                              }`}
+                              disabled={!isActive}
                             >
                               <Layers className="w-4 h-4" />
                             </button>
