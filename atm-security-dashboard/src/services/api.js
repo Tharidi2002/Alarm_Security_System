@@ -325,14 +325,14 @@ export const disarmSystem = async (systemCode, triggeredBy, username) => {
   return await response.json();
 };
 
-export const stopSiren = async (systemCode, triggeredBy, username) => {
+export const stopSiren = async (systemCode, triggeredBy, description, username) => {
   let url = `${API_BASE_URL}/alerts/stop-siren`;
   if (username) url += `?username=${encodeURIComponent(username)}`;
   
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ systemCode, triggeredBy }),
+    body: JSON.stringify({ systemCode, triggeredBy, description }),
   });
   if (!response.ok) {
     const errorMsg = await response.text();

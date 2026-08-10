@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
-import { Bell, X, AlertTriangle, MapPin, Clock, Radio } from 'lucide-react';
+import { Bell, X, AlertTriangle, MapPin, Clock, Radio, BellOff } from 'lucide-react';
 import StatusBadge from './StatusBadge';
 
 export default function NotificationToast({ alert, onClose }) {
@@ -114,6 +114,16 @@ export default function NotificationToast({ alert, onClose }) {
             </div>
             {renderZoneBadges(zoneDisplay)}
           </div>
+
+          {alert.status === 'SIREN_STOP' && (
+            <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-3 text-center">
+              <div className="flex items-center justify-center gap-2">
+                <BellOff className="w-5 h-5 text-orange-400" />
+                <span className="text-orange-400 font-bold text-sm">🔕 Siren Stopped</span>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">System action completed</p>
+            </div>
+          )}
 
           <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 mt-2">
             <p className="text-xs text-slate-500 mb-1 font-mono">📨 Alert Message</p>

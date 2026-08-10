@@ -26,6 +26,7 @@ import ZoneManagement from './ZoneManagement';
 import CompanyManagement from './CompanyManagement';
 import DeleteConfirmationModal from './DeleteConfirmationModal';
 import ArchivedSystemsInline from './ArchivedSystemsInline';
+import SirenStopModal from './SirenStopModal';
 
 
 export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
@@ -77,8 +78,8 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [systemToDelete, setSystemToDelete] = useState(null);
 
-  // User Search state
-  const [userSearchQuery, setUserSearchQuery] = useState('');
+  // Siren stop modal state
+  const [sirenStopSystem, setSirenStopSystem] = useState(null);
 
   const [timeNow, setTimeNow] = useState(new Date());
   
@@ -445,16 +446,10 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
     }
   };
 
-  const handleStopSirenDirect = async (systemCode) => {
+  const handleStopSirenDirect = (system) => {
     setError('');
     setSuccess('');
-    try {
-      await stopSiren(systemCode, user?.username || 'ADMIN', user?.username);
-      setSuccess(`✅ Siren stopped for system ${systemCode}`);
-      loadData();
-    } catch (errorMsg) {
-      setError(errorMsg.message || 'Failed to stop siren');
-    }
+    setSirenStopSystem(system);
   };
 
   const openDeleteConfirm = (system) => {
@@ -1101,7 +1096,7 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                                 ============================================================ */}
                             {sys.sirenStatus === 'ON' && isActive && (
                               <button
-                                onClick={() => handleStopSirenDirect(sys.systemCode)}
+                                onClick={() => handleStopSirenDirect(sys)}
                                 title="Stop Siren Only"
                                 className="p-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg transition-all"
                               >
@@ -1405,6 +1400,22 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
           system={systemToDelete}
           username={user?.username}
           onConfirm={handleDeleteConfirmed}
+        />
+      )}
+
+      {/* ========== SIREN STOP MODAL ========== */}
+      {sirenStopSystem && (
+        <SirenStopModal
+          systemCode={sirenStopSystem.systemCode}
+          location={sirenStopSystem.location}
+          isOpen={!!sirenStopSystem}
+          onClose={() => setSirenStopSystem(null)}
+          onSirenStopped={() => {
+            setSirenStopSystem(null);
+            loadData();
+            if (onSystemChange) onSystemChange();
+          }}
+          username={user?.username}
         />
       )}
     </div>

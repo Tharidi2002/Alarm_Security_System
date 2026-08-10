@@ -3,11 +3,13 @@ import PropTypes from 'prop-types';
 import { X, MapPin, Clock, Radio, CheckCircle, User, Clock as ClockIcon, Timer, AlertTriangle, Bell, Phone, BellOff, ShieldOff } from 'lucide-react';
 import StatusBadge from './StatusBadge';
 import AlertResolveModal from './AlertResolveModal';
-import { disarmSystem, stopSiren } from '../services/api';
+import SirenStopModal from './SirenStopModal';
+import { disarmSystem } from '../services/api';
 
 
 export default function AlertDetailsPanel({ alert, isOpen, onClose, onResolved, username }) {
   const [showResolveModal, setShowResolveModal] = useState(false);
+  const [showSirenStopModal, setShowSirenStopModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState(null);
   const [actionSuccess, setActionSuccess] = useState(null);
@@ -32,24 +34,9 @@ export default function AlertDetailsPanel({ alert, isOpen, onClose, onResolved, 
     }
   };
 
-  const handleStopSiren = async () => {
+  const handleStopSiren = () => {
     if (!alert.alarmSystem?.systemCode) return;
-    setActionLoading(true);
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      const res = await stopSiren(alert.alarmSystem.systemCode, username || 'DASHBOARD');
-      setActionSuccess(`Siren stopped. ${res.pendingAlerts} alerts still pending.`);
-      setTimeout(() => {
-        setActionSuccess(null);
-        if (onResolved) onResolved();
-        onClose();
-      }, 2000);
-    } catch (err) {
-      setActionError(err.message || 'Failed to stop siren');
-    } finally {
-      setActionLoading(false);
-    }
+    setShowSirenStopModal(true);
   };
 
   if (!isOpen || !alert) return null;
@@ -120,6 +107,7 @@ export default function AlertDetailsPanel({ alert, isOpen, onClose, onResolved, 
   };
 
   const isPending = alert.status === 'PENDING';
+  const isSirenStop = alert.status === 'SIREN_STOP';
 
   const getLivePendingDuration = () => {
     if (!alert.receivedAt || !isPending) return null;
@@ -214,10 +202,35 @@ export default function AlertDetailsPanel({ alert, isOpen, onClose, onResolved, 
             </div>
 
             {/* Pending Duration */}
-            {isPending && (
+            {isPending && alert.status !== 'SIREN_STOP' && (
               <div className="flex items-center gap-2 text-yellow-400 text-sm bg-yellow-500/10 border border-yellow-500/20 rounded-xl px-4 py-2.5">
                 <Timer className="w-4 h-4 flex-shrink-0" />
                 <span>Pending for: <span className="font-bold font-mono text-yellow-300">{getLivePendingDuration()}</span></span>
+              </div>
+            )}
+
+            {isSirenStop && (
+              <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-center gap-2">
+                  <BellOff className="w-5 h-5 text-orange-400" />
+                  <span className="text-orange-400 font-bold text-sm">🔕 Siren Stopped Log</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <User className="w-3.5 h-3.5 text-orange-400" />
+                    <span>Stopped By: <span className="text-white font-bold">{alert.resolvedBy || 'Unknown'}</span></span>
+                  </div>
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <ClockIcon className="w-3.5 h-3.5 text-orange-400" />
+                    <span>Stopped At: <span className="text-white font-bold">{alert.resolvedAt ? new Date(alert.resolvedAt).toLocaleString() : new Date(alert.receivedAt).toLocaleString()}</span></span>
+                  </div>
+                </div>
+                {alert.resolutionDescription && (
+                  <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-slate-300">
+                    <span className="text-slate-500 font-mono text-[10px]">📝 Description / Reason:</span>
+                    <p className="mt-0.5 font-mono text-white">{alert.resolutionDescription}</p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -335,6 +348,19 @@ export default function AlertDetailsPanel({ alert, isOpen, onClose, onResolved, 
         onResolved={(resolvedAlert) => {
           setShowResolveModal(false);
           if (onResolved) onResolved(resolvedAlert);
+        }}
+        username={username}
+      />
+
+      <SirenStopModal
+        systemCode={alert.alarmSystem?.systemCode}
+        location={alert.alarmSystem?.location}
+        isOpen={showSirenStopModal}
+        onClose={() => setShowSirenStopModal(false)}
+        onSirenStopped={() => {
+          setShowSirenStopModal(false);
+          if (onResolved) onResolved();
+          onClose();
         }}
         username={username}
       />

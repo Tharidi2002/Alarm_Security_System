@@ -35,7 +35,10 @@ export function useAlerts(username) {
       const newAlerts = filteredData.filter(a => !previousAlertIds.current.has(a.id));
       
       if (newAlerts.length > 0 && previousAlertIds.current.size > 0) {
-        setNewAlert(newAlerts[0]);
+        const pendingNewAlert = newAlerts.find(a => a.status === 'PENDING');
+        if (pendingNewAlert) {
+          setNewAlert(pendingNewAlert);
+        }
       }
       
       previousAlertIds.current = currentIds;

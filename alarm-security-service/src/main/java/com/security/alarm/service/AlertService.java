@@ -93,23 +93,20 @@ public class AlertService {
                 system.getPanelPassword()
             );
             
-            if (!smsSent) {
-                alertLog.setResolutionDescription("SMS to panel failed: " + 
-                    (system.getPanelSimNumber() != null ? system.getPanelSimNumber() : "No panel SIM"));
-            }
-            
             // Update siren status
             system.setSirenStatus("OFF");
             alarmSystemRepository.save(system);
             
-            alertLog.setStatus("PENDING");
+            alertLog.setStatus("SIREN_STOP");  // ← PENDING වෙනුවට SIREN_STOP
             alertLog.setAlertType("SIREN_STOP");
             alertLog.setRawMessage(smsContent);
             alertLog.setZoneNumber(0);
             alertLog.setZoneNumbers("00");
             alertLog.setZoneNames("No Zone");
             alertLog.setAlarmSystem(system);
-            alertLog.setResolutionDescription("Siren stopped. Alert still pending.");
+            alertLog.setResolutionDescription(
+                smsSent ? "Siren stopped via SMS" : "SMS to panel failed"
+            );
             return alertLogRepository.save(alertLog);
         }
 
@@ -301,6 +298,13 @@ public class AlertService {
         }
 
         AlertLog alert = alertOpt.get();
+        
+        // ============================================================
+        // NEW: Cannot resolve SIREN_STOP or REJECTED alerts
+        // ============================================================
+        if ("SIREN_STOP".equals(alert.getStatus())) {
+            throw new RuntimeException("SIREN_STOP is a system action, not a pending alert. Alert ID: " + alertId);
+        }
         
         if ("REJECTED".equals(alert.getStatus())) {
             throw new RuntimeException("Cannot resolve REJECTED alert. Alert ID: " + alertId);
@@ -663,6 +667,11 @@ public class AlertService {
     // ============================================================
     @Transactional
     public SirenStopResult stopSirenOnly(String systemCode, String triggeredBy) {
+        return stopSirenOnly(systemCode, triggeredBy, null);
+    }
+
+    @Transactional
+    public SirenStopResult stopSirenOnly(String systemCode, String triggeredBy, String description) {
         Optional<AlarmSystem> machineOpt = alarmSystemRepository.findBySystemCode(systemCode);
         if (machineOpt.isEmpty()) {
             throw new IllegalArgumentException("System not found: " + systemCode);
@@ -690,15 +699,18 @@ public class AlertService {
         // Create SIREN_STOP log
         AlertLog stopLog = new AlertLog();
         stopLog.setAlarmSystem(system);
-        stopLog.setStatus("PENDING");
+        stopLog.setStatus("SIREN_STOP");
         stopLog.setAlertType("SIREN_STOP");
         stopLog.setRawMessage("Siren stopped via API/Dashboard" + (smsSent ? "" : " (SMS failed)"));
         stopLog.setReceivedAt(LocalDateTime.now());
+        stopLog.setResolvedAt(LocalDateTime.now());
+        stopLog.setResolvedBy(triggeredBy != null ? triggeredBy : "SYSTEM");
         stopLog.setZoneNumber(0);
         stopLog.setZoneNumbers("00");
         stopLog.setZoneNames("No Zone");
-        stopLog.setResolutionDescription("Siren stopped by " + (triggeredBy != null ? triggeredBy : "user") + 
-            (smsSent ? " via SMS" : " (SMS to panel failed)") + ". Alert still pending.");
+        stopLog.setResolutionDescription(description != null && !description.trim().isEmpty() 
+            ? description.trim() 
+            : "Siren stopped by " + (triggeredBy != null ? triggeredBy : "user"));
         alertLogRepository.save(stopLog);
 
         return new SirenStopResult((int) pendingCount, smsSent);

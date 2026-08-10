@@ -46,6 +46,14 @@ export default function StatusBadge({ status }) {
     );
   }
   
+  if (status === 'REJECTED') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide bg-slate-500/10 text-slate-400 border border-slate-500/20">
+        🚫 REJECTED
+      </span>
+    );
+  }
+  
   return (
     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide bg-slate-500/10 text-slate-400 border border-slate-500/20">
       {status || 'UNKNOWN'}

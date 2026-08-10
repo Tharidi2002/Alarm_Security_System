@@ -31,6 +31,9 @@ export default function AlertTable({ alerts, loading, tableContainerRef, usernam
     const status = alert.status || '';
     const lowerType = alertType.toLowerCase();
     
+    if (status === 'SIREN_STOP' || lowerType.includes('siren_stop')) {
+      return 'SIREN_STOP';
+    }
     if (status === 'REJECTED') {
       return 'REJECTED';
     }
@@ -322,7 +325,7 @@ export default function AlertTable({ alerts, loading, tableContainerRef, usernam
   };
 
   const renderSirenStatus = (alert) => {
-    if (!alert.alarmSystem) return null;
+    if (!alert.alarmSystem || alert.status !== 'PENDING') return null;
     const status = alert.alarmSystem.sirenStatus;
     if (status === 'ON') {
       return (
@@ -430,10 +433,8 @@ export default function AlertTable({ alerts, loading, tableContainerRef, usernam
                         </span>
                       </td>
                       <td className="py-1.5 px-1.5 sm:px-2 text-center">
-                        {alert.alarmSystem?.sirenStatus === 'ON' ? (
-                          <span className="text-red-400 text-[9px] sm:text-[10px] font-bold animate-pulse">🔔</span>
-                        ) : (
-                          <span className="text-slate-500 text-[9px] sm:text-[10px]">🔕</span>
+                        {renderSirenStatus(alert) || (
+                          <span className="text-slate-500 text-[8px] font-mono">—</span>
                         )}
                       </td>
                       <td className="py-1.5 px-1.5 sm:px-2">{renderZoneBadges(zoneDisplay)}</td>
@@ -506,7 +507,11 @@ export default function AlertTable({ alerts, loading, tableContainerRef, usernam
                         </span>
                       </td>
                       <td className="py-1 px-1 text-center">
-                        {alert.alarmSystem?.sirenStatus === 'ON' ? '🔔' : '🔕'}
+                        {alert.status === 'PENDING' ? (
+                          alert.alarmSystem?.sirenStatus === 'ON' ? '🔔' : '🔕'
+                        ) : (
+                          <span className="text-slate-500 text-[6px] font-mono">—</span>
+                        )}
                       </td>
                       <td className="py-1 px-1">{renderZoneBadges(zoneDisplay)}</td>
                       <td className="py-1 px-1 max-w-[80px]">

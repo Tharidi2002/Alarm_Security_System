@@ -66,7 +66,8 @@ public class AlertController {
                 response.put("action", "SIREN_STOP");
                 response.put("sirenStopped", true);
                 response.put("alertsResolved", false);
-                response.put("message", "Siren stopped successfully. Alerts still pending.");
+                response.put("status", "SIREN_STOP");  // ← NEW
+                response.put("message", "Siren stopped successfully.");
                 response.put("alert", savedLog);
                 return ResponseEntity.ok(response);
             }
@@ -272,6 +273,11 @@ public class AlertController {
                                            @RequestParam(required = false) String username) {
         String systemCode = request.get("systemCode");
         String triggeredBy = request.get("triggeredBy");
+        String description = request.get("description");
+        
+        if (triggeredBy == null || triggeredBy.trim().isEmpty()) {
+            triggeredBy = username != null ? username : "DASHBOARD";
+        }
         
         if (systemCode == null || systemCode.trim().isEmpty()) {
             return ResponseEntity.badRequest().body("systemCode is required");
@@ -286,7 +292,7 @@ public class AlertController {
                 }
             }
             
-            AlertService.SirenStopResult result = alertService.stopSirenOnly(systemCode, triggeredBy);
+            AlertService.SirenStopResult result = alertService.stopSirenOnly(systemCode, triggeredBy, description);
             
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
@@ -298,6 +304,7 @@ public class AlertController {
             response.put("smsSent", result.isSmsSent());
             response.put("message", "Siren stopped. " + result.getPendingCount() + 
                 " alerts still pending." + (result.isSmsSent() ? " SMS sent to panel." : " SMS to panel failed."));
+            response.put("description", description != null ? description : "");
             
             return ResponseEntity.ok(response);
             
