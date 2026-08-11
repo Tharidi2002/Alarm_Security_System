@@ -12,18 +12,18 @@ import java.util.Optional;
 
 public interface AlarmSystemRepository extends JpaRepository<AlarmSystem, Long> {
     
+    // ============================================================
+    // BASIC FINDERS
+    // ============================================================
     Optional<AlarmSystem> findBySimNumber(String simNumber);
-    
     Optional<AlarmSystem> findBySystemCode(String systemCode);
     
     // ============================================================
     // COMPANY METHODS
     // ============================================================
     List<AlarmSystem> findByCompanyId(Long companyId);
-    
     List<AlarmSystem> findByCompanyIdAndStatus(Long companyId, String status);
     
-    // ⚠️ මෙය පමණක් තබන්න - duplicate එකක් නැති බවට වග බලාගන්න
     @Query("SELECT COUNT(s) FROM AlarmSystem s WHERE s.company.id = :companyId AND (s.deleted = false OR s.deleted IS NULL)")
     long countByCompanyId(@Param("companyId") Long companyId);
     
@@ -35,7 +35,6 @@ public interface AlarmSystemRepository extends JpaRepository<AlarmSystem, Long> 
     // ============================================================
     // SOFT DELETE METHODS
     // ============================================================
-    
     @Query("SELECT s FROM AlarmSystem s WHERE s.deleted = false OR s.deleted IS NULL")
     List<AlarmSystem> findAllActive();
     
@@ -54,12 +53,27 @@ public interface AlarmSystemRepository extends JpaRepository<AlarmSystem, Long> 
     @Query("SELECT s FROM AlarmSystem s WHERE s.deleted = true AND s.company.id = :companyId")
     List<AlarmSystem> findDeletedByCompanyId(@Param("companyId") Long companyId);
     
+    // ============================================================
+    // AUTO-DELETE METHODS (for scheduled tasks)
+    // ============================================================
     @Query("SELECT s FROM AlarmSystem s WHERE s.deleted = true AND s.deletedAt < :cutoff")
     List<AlarmSystem> findDeletedBefore(@Param("cutoff") LocalDateTime cutoff);
     
+    @Query("SELECT s FROM AlarmSystem s WHERE s.deleted = true AND DATE(s.deletedAt) = DATE(:date)")
+    List<AlarmSystem> findDeletedOnDate(@Param("date") LocalDateTime date);
+    
+    @Query("SELECT COUNT(s) FROM AlarmSystem s WHERE s.deleted = true AND DATE(s.deletedAt) = DATE(:date)")
+    long countDeletedOnDate(@Param("date") LocalDateTime date);
+    
+    // ============================================================
+    // COUNT METHODS
+    // ============================================================
     @Query("SELECT COUNT(s) FROM AlarmSystem s WHERE s.deleted = false")
     long countActive();
     
+    // ============================================================
+    // PERMANENT DELETE (ADMIN ONLY)
+    // ============================================================
     @Modifying
     @Transactional
     @Query("DELETE FROM AlarmSystem s WHERE s.id = :id AND s.deleted = true")
