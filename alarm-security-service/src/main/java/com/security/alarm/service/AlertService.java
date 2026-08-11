@@ -19,7 +19,12 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.ArrayList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.stream.Collectors;
+import com.security.alarm.entity.Notification;
 
 @Service
 public class AlertService {
@@ -30,19 +35,24 @@ public class AlertService {
     private final UserRepository userRepository;
     private final UserSystemRepository userSystemRepository;
     private final SmsService smsService;
+    private final NotificationService notificationService;
+    private static final Logger logger = LoggerFactory.getLogger(AlertService.class);
+
 
     public AlertService(AlertLogRepository alertLogRepository, 
                         AlarmSystemRepository alarmSystemRepository,
                         AlarmZoneRepository alarmZoneRepository,
                         UserRepository userRepository,
                         UserSystemRepository userSystemRepository,
-                        SmsService smsService) {
+                        SmsService smsService, 
+                        NotificationService notificationService) {
         this.alertLogRepository = alertLogRepository;
         this.alarmSystemRepository = alarmSystemRepository;
         this.alarmZoneRepository = alarmZoneRepository;
         this.userRepository = userRepository;
         this.userSystemRepository = userSystemRepository;
         this.smsService = smsService;
+        this.notificationService = notificationService;
     }
 
     // ============================================================
@@ -75,6 +85,21 @@ public class AlertService {
             System.out.println("🚫 ALERT REJECTED: System " + 
                             (atmCode != null ? atmCode : fromSimNumber) + 
                             " is INACTIVE or not found.");
+
+            // ===== NOTIFICATION: Rejected alert =====
+            try {
+                notificationService.createAdminNotifications(
+                    NotificationService.TYPE_NEW_ALERT,
+                    "🚫 Alert Rejected - System Inactive",
+                    "Alert from " + (atmCode != null ? atmCode : fromSimNumber) + 
+                    " was rejected. System is INACTIVE or not found.",
+                    NotificationService.SEVERITY_WARNING,
+                    null, null, "SYSTEM", null
+                );
+            } catch (Exception e) {
+                logger.error("Failed to create notification for rejected alert", e);
+            }
+
             return rejectedLog;
         }
 
@@ -215,7 +240,55 @@ public class AlertService {
             alertLog.setAlertType(cleanMessage);
             alertLog.setRawMessage(smsContent);
             alertLog.setAlarmSystem(system);
-            return alertLogRepository.save(alertLog);
+            
+            AlertLog savedAlert = alertLogRepository.save(alertLog);
+            
+            // ===== NOTIFICATION: New Alert =====
+            try {
+                String title = "🚨 " + (system.getSystemCode()) + " - Zone Alarm";
+                String message = notificationService.buildAlertMessage(savedAlert);
+                
+                Map<String, Object> metadata = new HashMap<>();
+                metadata.put("alertId", savedAlert.getId());
+                metadata.put("systemCode", system.getSystemCode());
+                metadata.put("zoneNumbers", savedAlert.getZoneNumbers());
+                metadata.put("zoneNames", savedAlert.getZoneNames());
+                metadata.put("status", savedAlert.getStatus());
+                
+                // Send to all users in this company
+                if (system.getCompany() != null && system.getCompany().getId() != null) {
+                    notificationService.createCompanyNotifications(
+                        system.getCompany().getId(),
+                        NotificationService.TYPE_NEW_ALERT,
+                        title,
+                        message,
+                        NotificationService.SEVERITY_CRITICAL,
+                        system.getId(),
+                        savedAlert.getId(),
+                        "SYSTEM",
+                        metadata
+                    );
+                }
+                
+                // Also send to all admins
+                notificationService.createAdminNotifications(
+                    NotificationService.TYPE_NEW_ALERT,
+                    title,
+                    message,
+                    NotificationService.SEVERITY_CRITICAL,
+                    system.getId(),
+                    savedAlert.getId(),
+                    "SYSTEM",
+                    metadata
+                );
+                
+                logger.info("📬 Created notifications for new alert: {}", savedAlert.getId());
+                
+            } catch (Exception e) {
+                logger.error("Failed to create notification for new alert", e);
+            }
+            
+            return savedAlert;
         }
         // ============================================================
         // 6. DEFAULT

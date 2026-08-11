@@ -22,7 +22,7 @@ public class DeletedSystemsController {
     private final ScheduledTaskService scheduledTaskService;
     private final NotificationService notificationService;
     private final PermissionService permissionService;
-
+    
     public DeletedSystemsController(AlarmSystemRepository alarmSystemRepository,
                                     ScheduledTaskService scheduledTaskService,
                                     NotificationService notificationService,

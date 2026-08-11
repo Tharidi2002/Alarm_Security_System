@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.security.alarm.repository.NotificationRepository;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -35,6 +36,7 @@ public class ScheduledTaskService {
     private final SystemArchiveRepository systemArchiveRepository;
     private final NotificationService notificationService;
     private final ObjectMapper objectMapper;
+    private final NotificationRepository notificationRepository;
 
     public ScheduledTaskService(AlarmSystemRepository alarmSystemRepository,
                                 AlarmZoneRepository alarmZoneRepository,
@@ -42,6 +44,7 @@ public class ScheduledTaskService {
                                 UserSystemRepository userSystemRepository,
                                 SystemArchiveRepository systemArchiveRepository,
                                 NotificationService notificationService,
+                                NotificationRepository notificationRepository,
                                 ObjectMapper objectMapper) {
         this.alarmSystemRepository = alarmSystemRepository;
         this.alarmZoneRepository = alarmZoneRepository;
@@ -49,6 +52,7 @@ public class ScheduledTaskService {
         this.userSystemRepository = userSystemRepository;
         this.systemArchiveRepository = systemArchiveRepository;
         this.notificationService = notificationService;
+        this.notificationRepository = notificationRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -60,16 +64,14 @@ public class ScheduledTaskService {
         logger.info("⏰ Running deletion notification check at 3:00 AM");
         
         try {
-            // Get systems that will expire today (deleted_at + RETENTION_DAYS = today)
             LocalDateTime today = LocalDateTime.now();
             LocalDateTime expiryDate = today.minusDays(RETENTION_DAYS);
             
-            // Get systems that expired today (deleted_at is exactly RETENTION_DAYS ago)
             List<AlarmSystem> expiringToday = alarmSystemRepository.findDeletedOnDate(expiryDate);
             
             if (!expiringToday.isEmpty()) {
                 logger.info("📧 Found {} systems expiring today", expiringToday.size());
-                notificationService.sendAutoDeleteNotification(expiringToday);
+                notificationService.sendAutoDeleteNotification(expiringToday);  // ← Now defined
             } else {
                 logger.info("✅ No systems expiring today");
             }
@@ -197,4 +199,22 @@ public class ScheduledTaskService {
         LocalDateTime expiryDate = today.minusDays(RETENTION_DAYS);
         return alarmSystemRepository.countDeletedOnDate(expiryDate);
     }
+
+    // ============================================================
+    // NOTIFICATION CLEANUP - CALL FROM EXISTING SCHEDULER
+    // ============================================================
+
+    @Scheduled(cron = "0 0 2 * * ?")
+    @Transactional
+        public void cleanupNotifications() {
+            logger.info("🗑️ Running notification cleanup");
+            try {
+                int deleted = notificationRepository.deleteByCreatedAtBefore(
+                    LocalDateTime.now().minusDays(7)
+                );
+                logger.info("🗑️ Deleted {} expired notifications", deleted);
+            } catch (Exception e) {
+                logger.error("❌ Error cleaning up notifications: {}", e.getMessage(), e);
+            }
+        }
 }

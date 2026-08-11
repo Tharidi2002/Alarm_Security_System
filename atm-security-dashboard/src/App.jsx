@@ -1,7 +1,10 @@
+// src/App.jsx
+
 import { useState, useEffect } from 'react';
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import Notifications from './pages/Notifications';
 import './index.css';
 import { checkServerHealth } from './services/api';
 
@@ -14,6 +17,7 @@ function App() {
   const [showRegister, setShowRegister] = useState(false);
   const [registerUnlocked, setRegisterUnlocked] = useState(false);
   const [serverOnline, setServerOnline] = useState(true);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   // ===== CHECK SERVER ON APP LOAD =====
   useEffect(() => {
@@ -34,11 +38,13 @@ function App() {
   const handleLoginSuccess = (userData) => {
     localStorage.setItem('user', JSON.stringify(userData));
     setUser(userData);
+    setShowNotifications(false);
   };
 
   const handleLogout = () => {
     localStorage.removeItem('user');
     setUser(null);
+    setShowNotifications(false);
   };
 
   const handleShowRegister = () => {
@@ -55,10 +61,36 @@ function App() {
     setRegisterUnlocked(false);
   };
 
-  if (user) {
-    return <Dashboard user={user} onLogout={handleLogout} />;
+  const handleNotificationClick = () => {
+    setShowNotifications(true);
+  };
+
+  const handleBackFromNotifications = () => {
+    setShowNotifications(false);
+  };
+
+  // ===== IF SHOW NOTIFICATIONS =====
+  if (user && showNotifications) {
+    return (
+      <Notifications 
+        user={user} 
+        onBack={handleBackFromNotifications} 
+      />
+    );
   }
 
+  // ===== IF LOGGED IN =====
+  if (user) {
+    return (
+      <Dashboard 
+        user={user} 
+        onLogout={handleLogout} 
+        onNotificationClick={handleNotificationClick}
+      />
+    );
+  }
+
+  // ===== IF REGISTER =====
   if (showRegister) {
     return (
       <Register 
@@ -72,6 +104,7 @@ function App() {
     );
   }
 
+  // ===== LOGIN =====
   return (
     <Login 
       onLoginSuccess={handleLoginSuccess}
