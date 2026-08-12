@@ -79,11 +79,8 @@ public class PermissionService {
     }
 
     public boolean canAccessCompany(String username, Long companyId) {
-        // Admin can access any company
         if (isAdmin(username))
             return true;
-
-        // User can only access their own company
         if (isUser(username)) {
             Long userCompanyId = getUserCompanyId(username);
             if (userCompanyId == null)
@@ -92,7 +89,6 @@ public class PermissionService {
                 return true;
             return userCompanyId.equals(companyId);
         }
-
         return false;
     }
 
@@ -109,23 +105,18 @@ public class PermissionService {
     public boolean canAccessSystem(String username, Long systemId) {
         if (isAdmin(username))
             return true;
-
         if (isUser(username)) {
             Long userCompanyId = getUserCompanyId(username);
             if (userCompanyId == null)
                 return false;
-
             Optional<AlarmSystem> systemOpt = alarmSystemRepository.findById(systemId);
             if (systemOpt.isEmpty())
                 return false;
-
             AlarmSystem system = systemOpt.get();
             if (system.getCompany() == null)
                 return false;
-
             return system.getCompany().getId().equals(userCompanyId);
         }
-
         return false;
     }
 
@@ -136,32 +127,20 @@ public class PermissionService {
     }
 
     public boolean canManageSystem(String username, Long systemId) {
-        // Admin can manage any system
         if (isAdmin(username))
             return true;
-
-        // User can only manage systems in their company
         if (isUser(username)) {
             Long userCompanyId = getUserCompanyId(username);
             if (userCompanyId == null)
                 return false;
-
             Optional<AlarmSystem> systemOpt = alarmSystemRepository.findById(systemId);
             if (systemOpt.isEmpty())
                 return false;
-
             AlarmSystem system = systemOpt.get();
             if (system.getCompany() == null)
                 return false;
-
-            // DEBUG
-            System.out.println("DEBUG: canManageSystem - User company: " + userCompanyId +
-                    ", System company: " + system.getCompany().getId() +
-                    ", Result: " + system.getCompany().getId().equals(userCompanyId));
-
             return system.getCompany().getId().equals(userCompanyId);
         }
-
         return false;
     }
 
@@ -178,25 +157,20 @@ public class PermissionService {
     public boolean canAccessAlert(String username, Long alertId) {
         if (isAdmin(username))
             return true;
-
         if (isUser(username)) {
             Long userCompanyId = getUserCompanyId(username);
             if (userCompanyId == null)
                 return false;
-
             Optional<AlertLog> alertOpt = alertLogRepository.findById(alertId);
             if (alertOpt.isEmpty())
                 return false;
-
             AlertLog alert = alertOpt.get();
             if (alert.getAlarmSystem() == null)
                 return false;
             if (alert.getAlarmSystem().getCompany() == null)
                 return false;
-
             return alert.getAlarmSystem().getCompany().getId().equals(userCompanyId);
         }
-
         return false;
     }
 
@@ -218,14 +192,12 @@ public class PermissionService {
         if (isAdmin(username)) {
             return alarmSystemRepository.findAll();
         }
-
         if (isUser(username)) {
             Long companyId = getUserCompanyId(username);
             if (companyId == null)
                 return List.of();
             return alarmSystemRepository.findByCompanyId(companyId);
         }
-
         return List.of();
     }
 
@@ -233,27 +205,23 @@ public class PermissionService {
         if (isAdmin(username)) {
             return alertLogRepository.findAllByOrderByReceivedAtDesc();
         }
-
         if (isUser(username)) {
             Long companyId = getUserCompanyId(username);
             if (companyId == null)
                 return List.of();
-
             List<AlarmSystem> systems = alarmSystemRepository.findByCompanyId(companyId);
             List<Long> systemIds = systems.stream()
                     .map(AlarmSystem::getId)
                     .collect(java.util.stream.Collectors.toList());
-
             if (systemIds.isEmpty())
                 return List.of();
             return alertLogRepository.findAllByAlarmSystemIdInOrderByReceivedAtDesc(systemIds);
         }
-
         return List.of();
     }
 
     // ============================================================
-    // VALIDATION METHODS (THROW EXCEPTIONS)
+    // VALIDATION METHODS
     // ============================================================
 
     public void validateCompanyAccess(String username, Long companyId) {
@@ -274,24 +242,15 @@ public class PermissionService {
         }
     }
 
-    // ============================================================
-    // GET COMPANY FROM USERNAME
-    // ============================================================
-
     public Long getCompanyIdOrThrow(String username) {
         if (isAdmin(username))
             return null;
-
         Long companyId = getUserCompanyId(username);
         if (companyId == null) {
             throw new IllegalArgumentException("User has no company assigned");
         }
         return companyId;
     }
-
-    // ============================================================
-    // DEBUG: Get user info
-    // ============================================================
 
     public void debugUser(String username) {
         if (username == null || username.isEmpty()) {
@@ -310,82 +269,62 @@ public class PermissionService {
                 ", Company ID: " + (user.getCompany() != null ? user.getCompany().getId() : "NULL"));
     }
 
-    /**
-     * Check if a user is a FORM Admin (Super Admin - registered via registration
-     * form)
-     * FORM Admins have full control over all admin accounts
-     */
+    // ============================================================
+    // ADMIN ACCESS CONTROL METHODS (FIXED)
+    // ============================================================
+
     public boolean isFormAdmin(String username) {
         if (username == null || username.isEmpty())
             return false;
         Optional<User> userOpt = userRepository.findByUsername(username);
         if (userOpt.isEmpty())
             return false;
-
         User user = userOpt.get();
         if (!"ADMIN".equalsIgnoreCase(user.getRole()))
             return false;
-
-        // Check registration method from audit log
         Optional<RegistrationAuditLog> logOpt = registrationAuditLogRepository
                 .findByUsernameAndMethodForm(username);
-
         return logOpt.isPresent();
     }
 
-    /**
-     * Check if a user is an ADMIN_PANEL Admin (created by another admin)
-     */
     public boolean isAdminPanelAdmin(String username) {
         if (username == null || username.isEmpty())
             return false;
         Optional<User> userOpt = userRepository.findByUsername(username);
         if (userOpt.isEmpty())
             return false;
-
         User user = userOpt.get();
         if (!"ADMIN".equalsIgnoreCase(user.getRole()))
             return false;
-
         Optional<RegistrationAuditLog> logOpt = registrationAuditLogRepository
                 .findByUsernameAndMethodAdminPanel(username);
-
         return logOpt.isPresent();
     }
 
-    /**
-     * Get registration method for a user
-     * Returns: "FORM", "ADMIN_PANEL", or null
-     */
     public String getRegistrationMethod(String username) {
         if (username == null || username.isEmpty())
             return null;
-
         Optional<RegistrationAuditLog> formLog = registrationAuditLogRepository
                 .findByUsernameAndMethodForm(username);
         if (formLog.isPresent()) {
             return "FORM";
         }
-
         Optional<RegistrationAuditLog> panelLog = registrationAuditLogRepository
                 .findByUsernameAndMethodAdminPanel(username);
         if (panelLog.isPresent()) {
             return "ADMIN_PANEL";
         }
-
         return null;
     }
 
     /**
-     * Check if current user can manage (reset password, active/inactive, delete) a
-     * target admin
+     * Check if current user can manage (reset password, active/inactive, delete) a target admin
      * 
-     * Rules:
-     * 1. FORM Admin can manage ANY admin (including other FORM admins and
-     * ADMIN_PANEL admins)
+     * RULES (FIXED):
+     * 1. FORM Admin can manage ADMIN_PANEL Admins ONLY (NOT other FORM Admins)
      * 2. ADMIN_PANEL Admin can ONLY manage themselves
      * 3. ADMIN_PANEL Admin CANNOT manage other admins
-     * 4. Users cannot manage admins
+     * 4. FORM Admins CANNOT manage other FORM Admins
      */
     public boolean canManageAdmin(String currentUsername, String targetUsername) {
         // If target is not an admin, return false
@@ -403,12 +342,16 @@ public class PermissionService {
             return true;
         }
 
-        // Get registration method for current user
+        // Get registration methods
         String currentMethod = getRegistrationMethod(currentUsername);
+        String targetMethod = getRegistrationMethod(targetUsername);
 
-        // If current user is FORM Admin, they can manage anyone
+        // ============================================================
+        // FIX: FORM Admin can ONLY manage ADMIN_PANEL Admins
+        // ============================================================
         if ("FORM".equals(currentMethod)) {
-            return true;
+            // FORM Admin can manage ADMIN_PANEL Admins ONLY
+            return "ADMIN_PANEL".equals(targetMethod);
         }
 
         // If current user is ADMIN_PANEL Admin, they CANNOT manage other admins
@@ -450,32 +393,18 @@ public class PermissionService {
         return canManageAdmin(currentUsername, targetUsername);
     }
 
-    /**
-     * Check if current user is a Super Admin (FORM Admin)
-     */
     public boolean isSuperAdmin(String username) {
         return isFormAdmin(username);
     }
 
-    /**
-     * Check if current user can create a new admin
-     * Only FORM Admins can create new admins via Admin Panel
-     */
     public boolean canCreateAdmin(String currentUsername) {
         return isFormAdmin(currentUsername);
     }
 
-    /**
-     * Check if current user can create a new user (non-admin)
-     * Both FORM and ADMIN_PANEL admins can create users
-     */
     public boolean canCreateUser(String currentUsername) {
         return isAdmin(currentUsername);
     }
 
-    /**
-     * Get admin type label for display
-     */
     public String getAdminTypeLabel(String username) {
         String method = getRegistrationMethod(username);
         if ("FORM".equals(method)) {
@@ -485,5 +414,4 @@ public class PermissionService {
         }
         return "Unknown";
     }
-
 }

@@ -745,17 +745,6 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                 <Building className="w-4 h-4" /> Companies
               </button>
             )}
-
-            {/* Show Admin Management button only for Super Admins */}
-            {user?.role === 'ADMIN' && adminPermissions?.isSuperAdmin && (
-              <button
-                onClick={() => setShowAdminManagement(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono tracking-wider uppercase transition-all bg-purple-600 hover:bg-purple-500 text-white border border-purple-500"
-              >
-                <Shield className="w-4 h-4" />
-                Manage Admins
-              </button>
-            )}
           </div>
           
           {/* Show company name for USER */}
@@ -912,8 +901,22 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                     filteredUsers.map((u) => {
                       const isAdminUser = u.role === 'ADMIN';
                       const isCurrentUser = u.username === user?.username;
-                      const canManage = adminPermissions?.isSuperAdmin && isAdminUser && !isCurrentUser;
-                      const isSuperAdmin = u.registrationMethod === 'FORM';
+                      
+                      // ============================================================
+                      // FIX: Check permissions for admin management
+                      // ============================================================
+                      const isCurrentFormAdmin = adminPermissions?.isSuperAdmin === true;
+                      const isTargetFormAdmin = u.registrationMethod === 'FORM';
+                      const isTargetAdminPanel = u.registrationMethod === 'ADMIN_PANEL';
+                      
+                      // Can manage if:
+                      // 1. Current user is Super Admin
+                      // 2. Target is Ops Admin (NOT Super Admin/FORM) or has ADMIN_PANEL / non-FORM registrationMethod
+                      // 3. Target is not self
+                      const showAdminButtons = isCurrentFormAdmin && isAdminUser && !isTargetFormAdmin && !isCurrentUser;
+                      
+                      // Show lock icon for FORM Admins (protected)
+                      const showProtectedLock = isCurrentFormAdmin && isTargetFormAdmin && !isCurrentUser;
                       
                       return (
                         <div key={u.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-900/10 transition-colors">
@@ -929,11 +932,11 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                               </span>
                               {isAdminUser && (
                                 <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded-full border ${
-                                  isSuperAdmin
+                                  isTargetFormAdmin
                                     ? 'bg-purple-500/20 text-purple-400 border-purple-500/30'
                                     : 'bg-slate-600/20 text-slate-400 border-slate-600/30'
                                 }`}>
-                                  {isSuperAdmin ? '🔑 Super Admin' : '🛠️ Ops Admin'}
+                                  {isTargetFormAdmin ? '🔑 Super Admin' : '🛠️ Ops Admin'}
                                 </span>
                               )}
                               {u.companyName && (
@@ -964,12 +967,13 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                           </div>
 
                           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-                            {/* Admin Management Buttons - Only for Super Admin */}
-                            {canManage && (
+                            {/* ============================================================
+                                Admin Management Buttons - Only for Super Admin -> ADMIN_PANEL
+                                ============================================================ */}
+                            {showAdminButtons && (
                               <>
                                 <button
                                   onClick={() => {
-                                    // Open reset password for admin
                                     const newPass = prompt(`Enter new password for ${u.username}:`);
                                     if (newPass && newPass.length >= 6) {
                                       handleResetAdminPassword(u.id, u.username, newPass);
@@ -1004,7 +1008,18 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                               </>
                             )}
 
-                            {/* Normal user delete - Only for non-admin users */}
+                            {/* ============================================================
+                                Protected Lock for FORM Admins (Cannot be managed)
+                                ============================================================ */}
+                            {showProtectedLock && (
+                              <span className="px-2 py-1.5 bg-slate-800 text-slate-500 rounded-lg text-[10px] font-mono flex items-center gap-1 border border-slate-700 cursor-not-allowed" title="Super Admins cannot be managed by other Super Admins">
+                                <Lock className="w-3.5 h-3.5" /> Protected
+                              </span>
+                            )}
+
+                            {/* ============================================================
+                                Normal user delete - Only for non-admin users
+                                ============================================================ */}
                             {u.role !== 'ADMIN' && (
                               <>
                                 <button

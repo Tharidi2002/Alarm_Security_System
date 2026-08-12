@@ -141,6 +141,8 @@ public class AdminController {
             map.put("username", u.getUsername());
             map.put("role", u.getRole());
             map.put("isFirstAdmin", u.getId().equals(firstAdminId));
+            map.put("registrationMethod", permissionService.getRegistrationMethod(u.getUsername()));
+            map.put("isActive", u.getIsActive() != null ? u.getIsActive() : true);
             
             if (u.getCompany() != null) {
                 map.put("companyId", u.getCompany().getId());
