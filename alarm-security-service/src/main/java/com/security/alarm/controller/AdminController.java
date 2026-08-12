@@ -852,13 +852,21 @@ public class AdminController {
                 adminInfo.put("id", admin.getId());
                 adminInfo.put("username", admin.getUsername());
                 adminInfo.put("isActive", admin.getIsActive() != null ? admin.getIsActive() : true);
-                adminInfo.put("registrationMethod", permissionService.getRegistrationMethod(admin.getUsername()));
-                adminInfo.put("isSuperAdmin", "FORM".equals(permissionService.getRegistrationMethod(admin.getUsername())));
+                
+                // Get registration method from User entity (faster, no audit log query)
+                String regMethod = admin.getRegistrationMethod();
+                if (regMethod == null || regMethod.isEmpty()) {
+                    // Fallback: check audit log
+                    regMethod = permissionService.getRegistrationMethod(admin.getUsername());
+                }
+                
+                adminInfo.put("registrationMethod", regMethod);
+                adminInfo.put("isSuperAdmin", "FORM".equals(regMethod));
                 adminInfo.put("canBeManaged", permissionService.canManageAdmin(username, admin.getUsername()));
                 adminInfo.put("canBeDeleted", permissionService.canDeleteAdmin(username, admin.getUsername()));
                 adminInfo.put("canBeToggled", permissionService.canToggleAdminStatus(username, admin.getUsername()));
                 adminInfo.put("isLastSuperAdmin", 
-                    "FORM".equals(permissionService.getRegistrationMethod(admin.getUsername())) && 
+                    "FORM".equals(regMethod) && 
                     registrationAuditLogRepository.countFormAdmins() <= 1
                 );
                 adminList.add(adminInfo);
@@ -868,6 +876,7 @@ public class AdminController {
             return ResponseEntity.ok(response);
             
         } catch (Exception e) {
+            e.printStackTrace();
             return ResponseEntity.status(500).body("Error: " + e.getMessage());
         }
     }

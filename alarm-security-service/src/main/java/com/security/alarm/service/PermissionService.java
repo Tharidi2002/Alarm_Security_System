@@ -301,19 +301,54 @@ public class PermissionService {
         return logOpt.isPresent();
     }
 
+    /**
+     * Get registration method for a user
+     * Returns: "FORM", "ADMIN_PANEL", or null
+     * FIXED: Check if user exists and has method set in User entity first
+     */
     public String getRegistrationMethod(String username) {
         if (username == null || username.isEmpty())
             return null;
-        Optional<RegistrationAuditLog> formLog = registrationAuditLogRepository
-                .findByUsernameAndMethodForm(username);
-        if (formLog.isPresent()) {
-            return "FORM";
+        
+        // First check if user exists
+        Optional<User> userOpt = userRepository.findByUsername(username);
+        if (userOpt.isEmpty()) {
+            return null;
         }
-        Optional<RegistrationAuditLog> panelLog = registrationAuditLogRepository
-                .findByUsernameAndMethodAdminPanel(username);
-        if (panelLog.isPresent()) {
-            return "ADMIN_PANEL";
+        
+        User user = userOpt.get();
+        
+        // If user is not ADMIN, return null
+        if (!"ADMIN".equalsIgnoreCase(user.getRole())) {
+            return null;
         }
+        
+        // Check if user has registration_method set in User entity
+        if (user.getRegistrationMethod() != null && !user.getRegistrationMethod().isEmpty()) {
+            return user.getRegistrationMethod();
+        }
+        
+        // Fallback: Check audit log (with error handling)
+        try {
+            Optional<RegistrationAuditLog> formLog = registrationAuditLogRepository
+                    .findByUsernameAndMethodForm(username);
+            if (formLog.isPresent()) {
+                return "FORM";
+            }
+        } catch (Exception e) {
+            System.err.println("Warning: Could not check FORM audit log for " + username);
+        }
+        
+        try {
+            Optional<RegistrationAuditLog> panelLog = registrationAuditLogRepository
+                    .findByUsernameAndMethodAdminPanel(username);
+            if (panelLog.isPresent()) {
+                return "ADMIN_PANEL";
+            }
+        } catch (Exception e) {
+            System.err.println("Warning: Could not check ADMIN_PANEL audit log for " + username);
+        }
+        
         return null;
     }
 

@@ -20,16 +20,18 @@ public interface RegistrationAuditLogRepository extends JpaRepository<Registrati
     long countUserRegistrations();
     
     // ============================================================
-    // NEW QUERY METHODS FOR ADMIN ACCESS CONTROL
+    // FIXED: Use findFirst instead of findBy to avoid NonUniqueResultException
     // ============================================================
     
     @Query("SELECT l FROM RegistrationAuditLog l WHERE l.username = :username ORDER BY l.createdAt DESC")
     Optional<RegistrationAuditLog> findLatestByUsername(@Param("username") String username);
     
-    @Query("SELECT l FROM RegistrationAuditLog l WHERE l.username = :username AND l.method = 'FORM'")
+    // FIX: Get the LATEST record only (ORDER BY createdAt DESC LIMIT 1)
+    @Query(value = "SELECT * FROM registration_audit_log WHERE username = :username AND method = 'FORM' ORDER BY created_at DESC LIMIT 1", nativeQuery = true)
     Optional<RegistrationAuditLog> findByUsernameAndMethodForm(@Param("username") String username);
     
-    @Query("SELECT l FROM RegistrationAuditLog l WHERE l.username = :username AND l.method = 'ADMIN_PANEL'")
+    // FIX: Get the LATEST record only (ORDER BY createdAt DESC LIMIT 1)
+    @Query(value = "SELECT * FROM registration_audit_log WHERE username = :username AND method = 'ADMIN_PANEL' ORDER BY created_at DESC LIMIT 1", nativeQuery = true)
     Optional<RegistrationAuditLog> findByUsernameAndMethodAdminPanel(@Param("username") String username);
     
     @Query("SELECT COUNT(l) FROM RegistrationAuditLog l WHERE l.method = 'FORM' AND l.role = 'ADMIN'")
