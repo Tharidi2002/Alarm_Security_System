@@ -29,4 +29,17 @@ public class User {
     @JoinColumn(name = "company_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "users"})
     private Company company;
+
+    // ============================================================
+    // NEW FIELDS FOR ADMIN ACCESS CONTROL
+    // ============================================================
+    
+    @Column(name = "is_active")
+    private Boolean isActive = true;
+    
+    @Column(name = "is_super_admin")
+    private Boolean isSuperAdmin = false;
+    
+    @Column(name = "registration_method")
+    private String registrationMethod; // "FORM" or "ADMIN_PANEL"
 }

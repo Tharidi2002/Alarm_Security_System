@@ -5,7 +5,7 @@ import {
   ToggleLeft, ToggleRight, Edit2, Trash2, Save, Eye, EyeOff,
   RefreshCw, Zap, Copy, CheckCircle as CheckCircleIcon,
   Key, Lock, Layers, Trash, Search, Smartphone, Settings,
-  BellOff, ShieldOff, Building, Database
+  BellOff, ShieldOff, Building, Database, Shield
 } from 'lucide-react';
 import { 
   fetchUsers, 
@@ -29,7 +29,9 @@ import ArchivedSystemsInline from './ArchivedSystemsInline';
 import SirenStopModal from './SirenStopModal';
 import CompanyProfile from './CompanyProfile';
 import DeletedSystemsPanel from './DeletedSystemsPanel';
+import AdminManagementModal from './AdminManagementModal';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 
 export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
   const [activeTab, setActiveTab] = useState('USERS');
@@ -39,6 +41,10 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // Add new state for admin permissions
+  const [adminPermissions, setAdminPermissions] = useState(null);
+  const [showAdminManagement, setShowAdminManagement] = useState(false);
 
   // User form states
   const [newUsername, setNewUsername] = useState('');
@@ -193,6 +199,29 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
     }
   }, [isOpen, activeTab, fetchLatestSystemCode]);
 
+  // Load admin permissions when panel opens
+  const loadAdminPermissions = async () => {
+    if (!user?.username) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/admin-permissions?username=${encodeURIComponent(user.username)}`);
+      if (response.ok) {
+        const data = await response.json();
+        setAdminPermissions(data);
+        console.log('Admin Permissions:', data);
+      } else {
+        console.error('Failed to load admin permissions:', await response.text());
+      }
+    } catch (error) {
+      console.error('Failed to load admin permissions:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && user?.role === 'ADMIN') {
+      loadAdminPermissions();
+    }
+  }, [isOpen, user]);
+
   // load data when panel opens
   useEffect(() => {
     if (isOpen) {
@@ -320,6 +349,94 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
     setResetNewPassword('');
     setError('');
     setSuccess('');
+  };
+
+  // ========== ADMIN MANAGEMENT FUNCTIONS ==========
+  
+  // Toggle admin active/inactive status
+  const handleToggleAdminStatus = async (adminId, currentStatus, adminUsername) => {
+    if (!window.confirm(`Are you sure you want to ${currentStatus ? 'deactivate' : 'activate'} admin "${adminUsername}"?`)) return;
+    
+    setError('');
+    setSuccess('');
+    setLoading(true);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/admins/${adminId}/toggle-status?currentUsername=${encodeURIComponent(user.username)}`, {
+        method: 'PATCH'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setSuccess(`✅ ${data.message}`);
+        loadData();
+        loadAdminPermissions();
+      } else {
+        const errorMsg = await response.text();
+        setError(errorMsg || 'Failed to toggle admin status');
+      }
+    } catch (errorMsg) {
+      setError(errorMsg.message || 'Failed to toggle admin status');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Delete admin
+  const handleDeleteAdmin = async (adminId, adminUsername) => {
+    if (!window.confirm(`⚠️ Are you sure you want to delete admin "${adminUsername}"?\n\nThis action CANNOT be undone!`)) return;
+    
+    setError('');
+    setSuccess('');
+    setLoading(true);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/admins/${adminId}?currentUsername=${encodeURIComponent(user.username)}`, {
+        method: 'DELETE'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setSuccess(`✅ ${data.message}`);
+        loadData();
+        loadAdminPermissions();
+      } else {
+        const errorMsg = await response.text();
+        setError(errorMsg || 'Failed to delete admin');
+      }
+    } catch (errorMsg) {
+      setError(errorMsg.message || 'Failed to delete admin');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Reset admin password
+  const handleResetAdminPassword = async (adminId, adminUsername, newPassword) => {
+    setError('');
+    setSuccess('');
+    setLoading(true);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/admins/${adminId}/reset-password?currentUsername=${encodeURIComponent(user.username)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPassword })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setSuccess(`✅ ${data.message}`);
+        loadData();
+      } else {
+        const errorMsg = await response.text();
+        setError(errorMsg || 'Failed to reset admin password');
+      }
+    } catch (errorMsg) {
+      setError(errorMsg.message || 'Failed to reset admin password');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // ========== SYSTEM MANAGEMENT ==========
@@ -628,6 +745,17 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                 <Building className="w-4 h-4" /> Companies
               </button>
             )}
+
+            {/* Show Admin Management button only for Super Admins */}
+            {user?.role === 'ADMIN' && adminPermissions?.isSuperAdmin && (
+              <button
+                onClick={() => setShowAdminManagement(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono tracking-wider uppercase transition-all bg-purple-600 hover:bg-purple-500 text-white border border-purple-500"
+              >
+                <Shield className="w-4 h-4" />
+                Manage Admins
+              </button>
+            )}
           </div>
           
           {/* Show company name for USER */}
@@ -635,6 +763,16 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
             <div className="mt-3 text-xs text-emerald-400 font-mono flex items-center gap-2">
               <Building className="w-3.5 h-3.5" />
               Managing Company: {user.companyName} {user.companyCode && `(${user.companyCode})`}
+            </div>
+          )}
+
+          {/* Show admin type for ADMIN */}
+          {isAdmin && adminPermissions && (
+            <div className="mt-3 text-xs font-mono flex items-center gap-2">
+              <Shield className="w-3.5 h-3.5" />
+              <span className={adminPermissions.isSuperAdmin ? 'text-purple-400' : 'text-slate-400'}>
+                {adminPermissions.adminType === 'SUPER_ADMIN' ? '🔑 Super Admin (Full Access)' : '🛠️ Operational Admin (Limited)'}
+              </span>
             </div>
           )}
         </div>
@@ -771,73 +909,134 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                       {userSearchQuery ? 'No users found matching your search' : 'No users registered'}
                     </div>
                   ) : (
-                    filteredUsers.map((u) => (
-                      <div key={u.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-900/10 transition-colors">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-mono font-bold text-sm text-white">{u.username}</span>
-                            <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
-                              u.role === 'ADMIN' 
-                                ? 'bg-red-500/10 text-red-400 border-red-500/20' 
-                                : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                            }`}>
-                              {u.role}
-                            </span>
-                            {u.companyName && (
-                              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20">
-                                {u.companyName}
+                    filteredUsers.map((u) => {
+                      const isAdminUser = u.role === 'ADMIN';
+                      const isCurrentUser = u.username === user?.username;
+                      const canManage = adminPermissions?.isSuperAdmin && isAdminUser && !isCurrentUser;
+                      const isSuperAdmin = u.registrationMethod === 'FORM';
+                      
+                      return (
+                        <div key={u.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-900/10 transition-colors">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono font-bold text-sm text-white">{u.username}</span>
+                              <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                                u.role === 'ADMIN' 
+                                  ? 'bg-red-500/10 text-red-400 border-red-500/20' 
+                                  : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                              }`}>
+                                {u.role}
                               </span>
-                            )}
-                          </div>
-                          
-                          {u.role === 'USER' && (
-                            <div className="mt-1.5 flex flex-wrap gap-1">
-                              {u.assignedSystems.length === 0 ? (
-                                <span className="text-[10px] text-slate-500 font-mono">No systems assigned</span>
-                              ) : (
-                                u.assignedSystems.map((sys) => (
-                                  <span key={sys.id} className="bg-slate-800 text-slate-300 font-mono text-[10px] px-1.5 py-0.5 rounded-md border border-slate-700">
-                                    {sys.systemCode}
-                                  </span>
-                                ))
+                              {isAdminUser && (
+                                <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded-full border ${
+                                  isSuperAdmin
+                                    ? 'bg-purple-500/20 text-purple-400 border-purple-500/30'
+                                    : 'bg-slate-600/20 text-slate-400 border-slate-600/30'
+                                }`}>
+                                  {isSuperAdmin ? '🔑 Super Admin' : '🛠️ Ops Admin'}
+                                </span>
+                              )}
+                              {u.companyName && (
+                                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20">
+                                  {u.companyName}
+                                </span>
+                              )}
+                              {u.isActive === false && (
+                                <span className="text-[8px] font-mono px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
+                                  ⚠️ INACTIVE
+                                </span>
                               )}
                             </div>
-                          )}
-                        </div>
+                            
+                            {u.role === 'USER' && (
+                              <div className="mt-1.5 flex flex-wrap gap-1">
+                                {u.assignedSystems.length === 0 ? (
+                                  <span className="text-[10px] text-slate-500 font-mono">No systems assigned</span>
+                                ) : (
+                                  u.assignedSystems.map((sys) => (
+                                    <span key={sys.id} className="bg-slate-800 text-slate-300 font-mono text-[10px] px-1.5 py-0.5 rounded-md border border-slate-700">
+                                      {sys.systemCode}
+                                    </span>
+                                  ))
+                                )}
+                              </div>
+                            )}
+                          </div>
 
-                        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-                          {u.role !== 'ADMIN' && (
-                            <>
+                          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+                            {/* Admin Management Buttons - Only for Super Admin */}
+                            {canManage && (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    // Open reset password for admin
+                                    const newPass = prompt(`Enter new password for ${u.username}:`);
+                                    if (newPass && newPass.length >= 6) {
+                                      handleResetAdminPassword(u.id, u.username, newPass);
+                                    } else if (newPass !== null) {
+                                      setError('Password must be at least 6 characters');
+                                    }
+                                  }}
+                                  className="px-2 py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
+                                  title="Reset admin password"
+                                >
+                                  <Key className="w-3.5 h-3.5" /> Reset
+                                </button>
+                                <button
+                                  onClick={() => handleToggleAdminStatus(u.id, u.isActive !== false, u.username)}
+                                  className={`px-2 py-1.5 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1 border ${
+                                    u.isActive !== false
+                                      ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                      : 'bg-red-500/10 hover:bg-red-500/20 text-red-400 border-red-500/30'
+                                  }`}
+                                  title={u.isActive !== false ? 'Deactivate admin' : 'Activate admin'}
+                                >
+                                  {u.isActive !== false ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+                                  {u.isActive !== false ? 'Active' : 'Inactive'}
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteAdmin(u.id, u.username)}
+                                  className="px-2 py-1.5 bg-red-500/10 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/20 hover:border-red-500 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
+                                  title="Delete admin"
+                                >
+                                  <Trash className="w-3.5 h-3.5" /> Delete
+                                </button>
+                              </>
+                            )}
+
+                            {/* Normal user delete - Only for non-admin users */}
+                            {u.role !== 'ADMIN' && (
+                              <>
+                                <button
+                                  onClick={() => handleDeleteUser(u.id, u.username)}
+                                  className="px-2 py-1.5 bg-red-500/10 hover:bg-red-650 text-red-400 hover:text-white border border-red-500/20 hover:border-red-500 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
+                                  title="Delete user"
+                                >
+                                  <Trash className="w-3.5 h-3.5" /> Delete
+                                </button>
+                                <button
+                                  onClick={() => openResetPasswordModal(u)}
+                                  className="px-2 py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 hover:text-yellow-300 border border-yellow-500/30 hover:border-yellow-500/50 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
+                                  title="Reset user password"
+                                >
+                                  <Key className="w-3.5 h-3.5" /> Reset
+                                </button>
+                              </>
+                            )}
+                            
+                            {u.role === 'USER' && (
                               <button
-                                onClick={() => handleDeleteUser(u.id, u.username)}
-                                className="px-2 py-1.5 bg-red-500/10 hover:bg-red-650 text-red-400 hover:text-white border border-red-500/20 hover:border-red-500 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
-                                title="Delete user"
+                                onClick={() => handleSelectUserToAssign(u)}
+                                className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-[10px] font-mono transition-all text-slate-300 hover:text-white"
+                                title="Assign systems"
                               >
-                                <Trash className="w-3.5 h-3.5" /> Delete
+                                Assign
                               </button>
-                              
-                              <button
-                                onClick={() => openResetPasswordModal(u)}
-                                className="px-2 py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 hover:text-yellow-300 border border-yellow-500/30 hover:border-yellow-500/50 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
-                                title="Reset user password"
-                              >
-                                <Key className="w-3.5 h-3.5" /> Reset
-                              </button>
-                            </>
-                          )}
-                          
-                          {u.role === 'USER' && (
-                            <button
-                              onClick={() => handleSelectUserToAssign(u)}
-                              className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-[10px] font-mono transition-all text-slate-300 hover:text-white"
-                              title="Assign systems"
-                            >
-                              Assign
-                            </button>
-                          )}
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -1488,6 +1687,21 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
           onSystemDeleted={() => {
             loadData();
             if (onSystemChange) onSystemChange();
+          }}
+        />
+      )}
+
+      {/* ========== ADMIN MANAGEMENT MODAL ========== */}
+      {showAdminManagement && adminPermissions && (
+        <AdminManagementModal
+          isOpen={showAdminManagement}
+          onClose={() => setShowAdminManagement(false)}
+          admins={adminPermissions.admins || []}
+          currentUsername={user?.username}
+          isSuperAdmin={adminPermissions.isSuperAdmin}
+          onAdminUpdated={() => {
+            loadData();
+            loadAdminPermissions();
           }}
         />
       )}

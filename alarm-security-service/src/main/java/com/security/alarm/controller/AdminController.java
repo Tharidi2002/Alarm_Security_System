@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 import jakarta.servlet.http.HttpServletRequest;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,9 +38,14 @@ public class AdminController {
     private final CompanyRepository companyRepository;
     private final PasswordEncoder passwordEncoder;
     private final AlarmZoneRepository alarmZoneRepository;
-    private final RegistrationAuditLogRepository auditLogRepository;
+    private final RegistrationAuditLogRepository auditLogRepository;  // ← මෙය තිබුණා
     private final PermissionService permissionService;
     private final AlertLogRepository alertLogRepository;
+
+    // ============================================================
+    // NEW: Add registrationAuditLogRepository for admin management
+    // ============================================================
+    private final RegistrationAuditLogRepository registrationAuditLogRepository;
 
     public AdminController(UserRepository userRepository,
                         UserSystemRepository userSystemRepository,
@@ -49,7 +55,8 @@ public class AdminController {
                         AlarmZoneRepository alarmZoneRepository,
                         RegistrationAuditLogRepository auditLogRepository,
                         PermissionService permissionService,
-                        AlertLogRepository alertLogRepository) {
+                        AlertLogRepository alertLogRepository,
+                        RegistrationAuditLogRepository registrationAuditLogRepository) {  // ← Add to constructor
         this.userRepository = userRepository;
         this.userSystemRepository = userSystemRepository;
         this.alarmSystemRepository = alarmSystemRepository;
@@ -59,6 +66,7 @@ public class AdminController {
         this.auditLogRepository = auditLogRepository;
         this.permissionService = permissionService;
         this.alertLogRepository = alertLogRepository;
+        this.registrationAuditLogRepository = registrationAuditLogRepository;  // ← Initialize
     }
 
     // ============================================================
@@ -784,6 +792,263 @@ public class AdminController {
             
         } catch (Exception e) {
             e.printStackTrace();
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
+
+    // ============================================================
+    // 🆕 ADMIN MANAGEMENT ENDPOINTS
+    // ============================================================
+
+    /**
+     * Get admin management info for current user
+     * Returns what permissions the current user has
+     */
+    @GetMapping("/admin-permissions")
+    public ResponseEntity<?> getAdminPermissions(@RequestParam String username) {
+        try {
+            Map<String, Object> response = new HashMap<>();
+            
+            // Check if user is admin
+            boolean isAdmin = permissionService.isAdmin(username);
+            response.put("isAdmin", isAdmin);
+            
+            if (!isAdmin) {
+                response.put("canManageAdmins", false);
+                response.put("canCreateAdmin", false);
+                response.put("canDeleteAdmin", false);
+                response.put("canToggleAdminStatus", false);
+                response.put("canResetAdminPassword", false);
+                response.put("isSuperAdmin", false);
+                response.put("adminType", "USER");
+                return ResponseEntity.ok(response);
+            }
+            
+            // Get admin details
+            String registrationMethod = permissionService.getRegistrationMethod(username);
+            boolean isFormAdmin = "FORM".equals(registrationMethod);
+            
+            response.put("registrationMethod", registrationMethod);
+            response.put("isSuperAdmin", isFormAdmin);
+            response.put("adminType", isFormAdmin ? "SUPER_ADMIN" : "OPERATIONAL_ADMIN");
+            
+            // Permissions
+            response.put("canCreateAdmin", isFormAdmin);
+            response.put("canManageAdmins", isFormAdmin);
+            response.put("canDeleteAdmin", isFormAdmin);
+            response.put("canToggleAdminStatus", isFormAdmin);
+            response.put("canResetAdminPassword", true); // Can always reset own password
+            
+            // Get all admins with their registration info
+            List<User> admins = userRepository.findAll().stream()
+                .filter(u -> "ADMIN".equalsIgnoreCase(u.getRole()))
+                .collect(Collectors.toList());
+            
+            List<Map<String, Object>> adminList = new ArrayList<>();
+            for (User admin : admins) {
+                Map<String, Object> adminInfo = new HashMap<>();
+                adminInfo.put("id", admin.getId());
+                adminInfo.put("username", admin.getUsername());
+                adminInfo.put("isActive", admin.getIsActive() != null ? admin.getIsActive() : true);
+                adminInfo.put("registrationMethod", permissionService.getRegistrationMethod(admin.getUsername()));
+                adminInfo.put("isSuperAdmin", "FORM".equals(permissionService.getRegistrationMethod(admin.getUsername())));
+                adminInfo.put("canBeManaged", permissionService.canManageAdmin(username, admin.getUsername()));
+                adminInfo.put("canBeDeleted", permissionService.canDeleteAdmin(username, admin.getUsername()));
+                adminInfo.put("canBeToggled", permissionService.canToggleAdminStatus(username, admin.getUsername()));
+                adminInfo.put("isLastSuperAdmin", 
+                    "FORM".equals(permissionService.getRegistrationMethod(admin.getUsername())) && 
+                    registrationAuditLogRepository.countFormAdmins() <= 1
+                );
+                adminList.add(adminInfo);
+            }
+            response.put("admins", adminList);
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Reset admin password - with permission check
+     */
+    @PutMapping("/admins/{id}/reset-password")
+    public ResponseEntity<?> resetAdminPassword(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> request,
+            @RequestParam String currentUsername) {
+        
+        try {
+            Optional<User> targetOpt = userRepository.findById(id);
+            if (targetOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            User target = targetOpt.get();
+            
+            // Only admins can reset passwords
+            if (!"ADMIN".equalsIgnoreCase(target.getRole())) {
+                return ResponseEntity.badRequest().body("Target is not an admin");
+            }
+            
+            // Check permission
+            if (!permissionService.canManageAdmin(currentUsername, target.getUsername())) {
+                return ResponseEntity.status(403).body("Access denied: You cannot manage this admin");
+            }
+            
+            String newPassword = request.get("newPassword");
+            if (newPassword == null || newPassword.length() < 6) {
+                return ResponseEntity.badRequest().body("Password must be at least 6 characters");
+            }
+            
+            target.setPassword(passwordEncoder.encode(newPassword));
+            userRepository.save(target);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Password reset successfully for " + target.getUsername());
+            response.put("username", target.getUsername());
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Toggle admin active/inactive status - with permission check
+     */
+    @PatchMapping("/admins/{id}/toggle-status")
+    public ResponseEntity<?> toggleAdminStatus(
+            @PathVariable Long id,
+            @RequestParam String currentUsername) {
+        
+        try {
+            Optional<User> targetOpt = userRepository.findById(id);
+            if (targetOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            User target = targetOpt.get();
+            
+            // Only admins can be toggled
+            if (!"ADMIN".equalsIgnoreCase(target.getRole())) {
+                return ResponseEntity.badRequest().body("Target is not an admin");
+            }
+            
+            // Check permission
+            if (!permissionService.canToggleAdminStatus(currentUsername, target.getUsername())) {
+                return ResponseEntity.status(403).body("Access denied: You cannot manage this admin");
+            }
+            
+            // Check if trying to deactivate self
+            if (currentUsername.equals(target.getUsername())) {
+                return ResponseEntity.badRequest().body("You cannot deactivate yourself");
+            }
+            
+            // Toggle status
+            boolean newStatus = !(target.getIsActive() != null ? target.getIsActive() : true);
+            target.setIsActive(newStatus);
+            userRepository.save(target);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", target.getUsername() + " is now " + (newStatus ? "ACTIVE" : "INACTIVE"));
+            response.put("username", target.getUsername());
+            response.put("isActive", newStatus);
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Delete admin - with permission check
+     */
+    @DeleteMapping("/admins/{id}")
+    public ResponseEntity<?> deleteAdmin(
+            @PathVariable Long id,
+            @RequestParam String currentUsername) {
+        
+        try {
+            Optional<User> targetOpt = userRepository.findById(id);
+            if (targetOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            User target = targetOpt.get();
+            
+            // Only admins can be deleted
+            if (!"ADMIN".equalsIgnoreCase(target.getRole())) {
+                return ResponseEntity.badRequest().body("Target is not an admin");
+            }
+            
+            // Check permission
+            if (!permissionService.canDeleteAdmin(currentUsername, target.getUsername())) {
+                return ResponseEntity.status(403).body("Access denied: You cannot delete this admin");
+            }
+            
+            // Check if trying to delete self
+            if (currentUsername.equals(target.getUsername())) {
+                return ResponseEntity.badRequest().body("You cannot delete yourself");
+            }
+            
+            // Delete user
+            userRepository.deleteById(id);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Admin " + target.getUsername() + " deleted successfully");
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Get admin details for editing
+     */
+    @GetMapping("/admins/{id}")
+    public ResponseEntity<?> getAdminDetails(
+            @PathVariable Long id,
+            @RequestParam String currentUsername) {
+        
+        try {
+            Optional<User> targetOpt = userRepository.findById(id);
+            if (targetOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            User target = targetOpt.get();
+            
+            if (!"ADMIN".equalsIgnoreCase(target.getRole())) {
+                return ResponseEntity.badRequest().body("Target is not an admin");
+            }
+            
+            // Check if current user can manage this admin
+            if (!permissionService.canManageAdmin(currentUsername, target.getUsername())) {
+                return ResponseEntity.status(403).body("Access denied");
+            }
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("id", target.getId());
+            response.put("username", target.getUsername());
+            response.put("isActive", target.getIsActive() != null ? target.getIsActive() : true);
+            response.put("registrationMethod", permissionService.getRegistrationMethod(target.getUsername()));
+            response.put("isSuperAdmin", "FORM".equals(permissionService.getRegistrationMethod(target.getUsername())));
+            response.put("canManage", permissionService.canManageAdmin(currentUsername, target.getUsername()));
+            response.put("canDelete", permissionService.canDeleteAdmin(currentUsername, target.getUsername()));
+            response.put("canToggle", permissionService.canToggleAdminStatus(currentUsername, target.getUsername()));
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
             return ResponseEntity.status(500).body("Error: " + e.getMessage());
         }
     }

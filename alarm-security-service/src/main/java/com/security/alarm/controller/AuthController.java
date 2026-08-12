@@ -208,8 +208,13 @@ public class AuthController {
         response.put("role", user.getRole());
 
         // ============================================================
-        // FIXED: Add company info
+        // NEW: Add registration method and admin type
         // ============================================================
+        String registrationMethod = permissionService.getRegistrationMethod(username);
+        response.put("registrationMethod", registrationMethod);
+        response.put("isSuperAdmin", "FORM".equals(registrationMethod));
+        response.put("isActive", user.getIsActive() != null ? user.getIsActive() : true);
+
         if (user.getCompany() != null) {
             response.put("companyId", user.getCompany().getId());
             response.put("companyName", user.getCompany().getCompanyName());
@@ -391,6 +396,19 @@ public class AuthController {
         newUser.setPassword(passwordEncoder.encode(password));
         newUser.setRole(role.toUpperCase());
         newUser.setCompany(company); // NEW: Set company
+        newUser.setIsActive(true); // NEW: Default active
+
+        // NEW: Set registration method based on how user was registered
+        if ("ADMIN".equalsIgnoreCase(role) && !hasAdmin) {
+            // First admin - FORM method
+            newUser.setRegistrationMethod("FORM");
+        } else if ("ADMIN".equalsIgnoreCase(role) && hasAdmin) {
+            // Additional admin via FORM with secret code - still FORM method
+            newUser.setRegistrationMethod("FORM");
+        } else if ("USER".equalsIgnoreCase(role)) {
+            // USER via FORM - FORM method
+            newUser.setRegistrationMethod("FORM");
+        }
 
         User savedUser = userRepository.save(newUser);
 
