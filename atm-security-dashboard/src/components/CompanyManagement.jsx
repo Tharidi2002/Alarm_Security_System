@@ -205,35 +205,50 @@ export default function CompanyManagement({ isOpen, onClose, username, userRole,
   };
 
   const viewCompanyDetails = async (company) => {
-    setSelectedCompany(company);
-    setLoading(true);
-    setError('');
+      setSelectedCompany(company);
+      setLoading(true);
+      setError('');
 
-    try {
-      // Get company details
-      const response = await fetch(`${API_BASE_URL}/admin/companies/${company.id}`);
-      if (!response.ok) throw new Error('Failed to load company details');
-      
-      // Get systems
-      const systemsRes = await fetch(`${API_BASE_URL}/admin/companies/${company.id}/systems`);
-      if (systemsRes.ok) {
-        const sysData = await systemsRes.json();
-        setCompanySystems(sysData);
+      try {
+          // Get company details - uses existing GET /api/admin/companies/{id}
+          const response = await fetch(`${API_BASE_URL}/admin/companies/${company.id}`);
+          if (!response.ok) throw new Error('Failed to load company details');
+          const data = await response.json();
+          
+          // Get systems for this company - NEW endpoint
+          try {
+              const systemsRes = await fetch(`${API_BASE_URL}/admin/companies/${company.id}/systems`);
+              if (systemsRes.ok) {
+                  const sysData = await systemsRes.json();
+                  setCompanySystems(sysData);
+              } else {
+                  setCompanySystems([]);
+              }
+          } catch (sysErr) {
+              console.warn('Could not load systems:', sysErr);
+              setCompanySystems([]);
+          }
+
+          // Get users for this company - NEW endpoint
+          try {
+              const usersRes = await fetch(`${API_BASE_URL}/admin/companies/${company.id}/users`);
+              if (usersRes.ok) {
+                  const userData = await usersRes.json();
+                  setCompanyUsers(userData);
+              } else {
+                  setCompanyUsers([]);
+              }
+          } catch (userErr) {
+              console.warn('Could not load users:', userErr);
+              setCompanyUsers([]);
+          }
+
+          setShowViewModal(true);
+      } catch (err) {
+          setError('Failed to load company details');
+      } finally {
+          setLoading(false);
       }
-
-      // Get users
-      const usersRes = await fetch(`${API_BASE_URL}/admin/companies/${company.id}/users`);
-      if (usersRes.ok) {
-        const userData = await usersRes.json();
-        setCompanyUsers(userData);
-      }
-
-      setShowViewModal(true);
-    } catch {
-      setError('Failed to load company details');
-    } finally {
-      setLoading(false);
-    }
   };
 
   const openEditModal = (company) => {

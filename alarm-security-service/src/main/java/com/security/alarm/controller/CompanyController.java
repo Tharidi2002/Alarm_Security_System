@@ -336,4 +336,48 @@ public class CompanyController {
             return ResponseEntity.status(500).body("Error: " + e.getMessage());
         }
     }
+
+    // ============================================================
+    // GET SYSTEMS BY COMPANY
+    // ============================================================
+    @GetMapping("/{id}/systems")
+    public ResponseEntity<?> getCompanySystems(@PathVariable Long id,
+                                            @RequestParam(required = false) String username) {
+        try {
+            if (username != null && !username.isEmpty()) {
+                if (!permissionService.canAccessCompany(username, id)) {
+                    return ResponseEntity.status(403).body("Access denied");
+                }
+            }
+            
+            List<AlarmSystem> systems = alarmSystemRepository.findByCompanyId(id);
+            return ResponseEntity.ok(systems);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
+
+    // ============================================================
+    // GET USERS BY COMPANY
+    // ============================================================
+    @GetMapping("/{id}/users")
+    public ResponseEntity<?> getCompanyUsers(@PathVariable Long id,
+                                            @RequestParam(required = false) String username) {
+        try {
+            if (username != null && !username.isEmpty()) {
+                if (!permissionService.canAccessCompany(username, id)) {
+                    return ResponseEntity.status(403).body("Access denied");
+                }
+            }
+            
+            List<User> users = userRepository.findByCompanyId(id);
+            return ResponseEntity.ok(users);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
 }
