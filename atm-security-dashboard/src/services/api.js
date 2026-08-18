@@ -666,3 +666,35 @@ export const permanentDeleteSystem = async (systemId, username) => {
     }
     return await response.text();
 };
+
+// ============================================================
+// DEACTIVATE COMPANY (ADMIN ONLY)
+// ============================================================
+export const deactivateCompany = async (companyId, reason, description, username) => {
+    const response = await fetch(`${API_BASE_URL}/admin/companies/${companyId}/deactivate?username=${encodeURIComponent(username)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason, description })
+    });
+    if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || 'Failed to deactivate company');
+    }
+    return await response.json();
+};
+
+// ============================================================
+// REACTIVATE COMPANY (ADMIN ONLY)
+// ============================================================
+export const reactivateCompany = async (companyId, note, username) => {
+    const response = await fetch(`${API_BASE_URL}/admin/companies/${companyId}/reactivate?username=${encodeURIComponent(username)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note })
+    });
+    if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || 'Failed to reactivate company');
+    }
+    return await response.json();
+};

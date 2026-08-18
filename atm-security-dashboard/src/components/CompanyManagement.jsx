@@ -4,8 +4,10 @@ import {
   X, Plus, Edit2, Trash2, Eye, RefreshCw, 
   Building, Users, Cpu, AlertCircle, CheckCircle,
   Search, Mail, Phone, MapPin, FileText,
-  Zap, Copy, CheckCircle as CheckCircleIcon
+  Zap, Copy, CheckCircle as CheckCircleIcon,
+  Power, PowerOff
 } from 'lucide-react';
+import { deactivateCompany, reactivateCompany } from '../services/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 
@@ -23,6 +25,12 @@ export default function CompanyManagement({ isOpen, onClose, username, userRole,
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [companySystems, setCompanySystems] = useState([]);
   const [companyUsers, setCompanyUsers] = useState([]);
+  
+  // ===== DEACTIVATE MODAL STATES =====
+  const [showDeactivateModal, setShowDeactivateModal] = useState(false);
+  const [deactivateReason, setDeactivateReason] = useState('');
+  const [deactivateDescription, setDeactivateDescription] = useState('');
+  const [deactivating, setDeactivating] = useState(false);
   
   // Form states
   const [formData, setFormData] = useState({
@@ -59,7 +67,6 @@ export default function CompanyManagement({ isOpen, onClose, username, userRole,
     }
   };
 
-  // ===== FETCH NEXT COMPANY CODE =====
   const fetchNextCompanyCode = (companiesList) => {
     try {
       const data = companiesList || companies;
@@ -103,7 +110,6 @@ export default function CompanyManagement({ isOpen, onClose, username, userRole,
     }
   }, [isOpen]);
 
-  // Recompute company code whenever companies list changes
   useEffect(() => {
     if (companies.length >= 0) {
       fetchNextCompanyCode(companies);
@@ -204,51 +210,108 @@ export default function CompanyManagement({ isOpen, onClose, username, userRole,
     }
   };
 
+  // ===== DEACTIVATE COMPANY =====
+  const handleDeactivateClick = (company) => {
+    setSelectedCompany(company);
+    setDeactivateReason('');
+    setDeactivateDescription('');
+    setShowDeactivateModal(true);
+    setError('');
+    setSuccess('');
+  };
+
+  const handleDeactivateConfirm = async () => {
+    if (!deactivateReason.trim()) {
+      setError('Reason is required to deactivate company');
+      return;
+    }
+
+    setDeactivating(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const result = await deactivateCompany(
+        selectedCompany.id,
+        deactivateReason.trim(),
+        deactivateDescription.trim() || null,
+        username
+      );
+      
+      setSuccess(`✅ Company "${selectedCompany.companyName}" deactivated successfully`);
+      setShowDeactivateModal(false);
+      setSelectedCompany(null);
+      setDeactivateReason('');
+      setDeactivateDescription('');
+      loadCompanies();
+    } catch (err) {
+      setError(err.message || 'Failed to deactivate company');
+    } finally {
+      setDeactivating(false);
+    }
+  };
+
+  // ===== REACTIVATE COMPANY =====
+  const handleReactivate = async (company) => {
+    if (!window.confirm(`Are you sure you want to reactivate "${company.companyName}"?`)) return;
+
+    setLoading(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const result = await reactivateCompany(company.id, null, username);
+      setSuccess(`✅ Company "${company.companyName}" reactivated successfully`);
+      loadCompanies();
+    } catch (err) {
+      setError(err.message || 'Failed to reactivate company');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const viewCompanyDetails = async (company) => {
-      setSelectedCompany(company);
-      setLoading(true);
-      setError('');
+    setSelectedCompany(company);
+    setLoading(true);
+    setError('');
 
+    try {
+      // Get company details
+      const response = await fetch(`${API_BASE_URL}/admin/companies/${company.id}`);
+      if (!response.ok) throw new Error('Failed to load company details');
+      
+      // Get systems
       try {
-          // Get company details - uses existing GET /api/admin/companies/{id}
-          const response = await fetch(`${API_BASE_URL}/admin/companies/${company.id}`);
-          if (!response.ok) throw new Error('Failed to load company details');
-          const data = await response.json();
-          
-          // Get systems for this company - NEW endpoint
-          try {
-              const systemsRes = await fetch(`${API_BASE_URL}/admin/companies/${company.id}/systems`);
-              if (systemsRes.ok) {
-                  const sysData = await systemsRes.json();
-                  setCompanySystems(sysData);
-              } else {
-                  setCompanySystems([]);
-              }
-          } catch (sysErr) {
-              console.warn('Could not load systems:', sysErr);
-              setCompanySystems([]);
-          }
-
-          // Get users for this company - NEW endpoint
-          try {
-              const usersRes = await fetch(`${API_BASE_URL}/admin/companies/${company.id}/users`);
-              if (usersRes.ok) {
-                  const userData = await usersRes.json();
-                  setCompanyUsers(userData);
-              } else {
-                  setCompanyUsers([]);
-              }
-          } catch (userErr) {
-              console.warn('Could not load users:', userErr);
-              setCompanyUsers([]);
-          }
-
-          setShowViewModal(true);
-      } catch (err) {
-          setError('Failed to load company details');
-      } finally {
-          setLoading(false);
+        const systemsRes = await fetch(`${API_BASE_URL}/admin/companies/${company.id}/systems`);
+        if (systemsRes.ok) {
+          const sysData = await systemsRes.json();
+          setCompanySystems(sysData);
+        } else {
+          setCompanySystems([]);
+        }
+      } catch {
+        setCompanySystems([]);
       }
+
+      // Get users
+      try {
+        const usersRes = await fetch(`${API_BASE_URL}/admin/companies/${company.id}/users`);
+        if (usersRes.ok) {
+          const userData = await usersRes.json();
+          setCompanyUsers(userData);
+        } else {
+          setCompanyUsers([]);
+        }
+      } catch {
+        setCompanyUsers([]);
+      }
+
+      setShowViewModal(true);
+    } catch {
+      setError('Failed to load company details');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const openEditModal = (company) => {
@@ -267,7 +330,6 @@ export default function CompanyManagement({ isOpen, onClose, username, userRole,
     setShowEditModal(true);
   };
 
-  // If userRole is USER, restrict to their companyId if provided
   const baseCompanies = (userRole === 'USER' && companyId)
     ? (companies || []).filter(c => String(c.id) === String(companyId))
     : (companies || []);
@@ -342,58 +404,193 @@ export default function CompanyManagement({ isOpen, onClose, username, userRole,
             {searchQuery ? 'No companies found' : 'No companies registered. Add your first company!'}
           </div>
         ) : (
-          filteredCompanies.map((company) => (
-            <div key={company.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-900/10 transition-colors">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-mono font-bold text-sm text-blue-400">{company.companyCode}</span>
-                  <span className="font-medium text-white">{company.companyName}</span>
-                  <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
-                    company.status === 'ACTIVE'
-                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                      : 'bg-slate-500/10 text-slate-400 border-slate-500/20'
-                  }`}>
-                    {company.status}
-                  </span>
-                </div>
-                {company.contactPerson && (
-                  <div className="text-xs text-slate-400 mt-1">
-                    Contact: {company.contactPerson} {company.contactEmail && `• ${company.contactEmail}`}
+          filteredCompanies.map((company) => {
+            const isActive = company.status === 'ACTIVE';
+            return (
+              <div key={company.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-900/10 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono font-bold text-sm text-blue-400">{company.companyCode}</span>
+                    <span className="font-medium text-white">{company.companyName}</span>
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                      isActive
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                        : 'bg-red-500/10 text-red-400 border-red-500/20'
+                    }`}>
+                      {isActive ? '🟢 ACTIVE' : '🔴 INACTIVE'}
+                    </span>
+                    {!isActive && company.inactivatedBy && (
+                      <span className="text-[8px] text-slate-500 font-mono">
+                        By: {company.inactivatedBy}
+                      </span>
+                    )}
                   </div>
-                )}
-              </div>
+                  {company.contactPerson && (
+                    <div className="text-xs text-slate-400 mt-1">
+                      Contact: {company.contactPerson} {company.contactEmail && `• ${company.contactEmail}`}
+                    </div>
+                  )}
+                  {!isActive && company.inactivationReason && (
+                    <div className="text-[10px] text-yellow-500/80 mt-0.5 font-mono">
+                      ⚠️ {company.inactivationReason}
+                    </div>
+                  )}
+                </div>
 
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  onClick={() => viewCompanyDetails(company)}
-                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded-lg transition-all"
-                  title="View Details"
-                >
-                  <Eye className="w-4 h-4" />
-                </button>
-                {userRole === 'ADMIN' && (
-                <>
+                <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+                  {/* Deactivate/Reactivate Button - ADMIN Only */}
+                  {userRole === 'ADMIN' && (
+                    isActive ? (
+                      <button
+                        onClick={() => handleDeactivateClick(company)}
+                        className="px-2 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
+                        title="Deactivate Company"
+                      >
+                        <PowerOff className="w-3.5 h-3.5" />
+                        Deactivate
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleReactivate(company)}
+                        className="px-2 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
+                        title="Reactivate Company"
+                      >
+                        <Power className="w-3.5 h-3.5" />
+                        Reactivate
+                      </button>
+                    )
+                  )}
+
                   <button
-                    onClick={() => openEditModal(company)}
+                    onClick={() => viewCompanyDetails(company)}
                     className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded-lg transition-all"
-                    title="Edit Company"
+                    title="View Details"
                   >
-                    <Edit2 className="w-4 h-4" />
+                    <Eye className="w-4 h-4" />
                   </button>
-                  <button
-                    onClick={() => handleDeleteCompany(company)}
-                    className="p-1.5 bg-red-500/10 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/20 hover:border-red-500 rounded-lg transition-all"
-                    title="Delete Company"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-          ))
+                  
+                  {userRole === 'ADMIN' && (
+                    <>
+                      <button
+                        onClick={() => openEditModal(company)}
+                        className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded-lg transition-all"
+                        title="Edit Company"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteCompany(company)}
+                        className="p-1.5 bg-red-500/10 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/20 hover:border-red-500 rounded-lg transition-all"
+                        title="Delete Company"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })
         )}
       </div>
+
+      {/* ===== DEACTIVATE MODAL ===== */}
+      {showDeactivateModal && selectedCompany && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-red-500/30 rounded-2xl max-w-md w-full shadow-2xl shadow-red-500/10">
+            <div className="flex justify-between items-center p-5 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <PowerOff className="w-6 h-6 text-red-500" />
+                <h3 className="text-lg font-bold text-white">Deactivate Company</h3>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowDeactivateModal(false);
+                  setSelectedCompany(null);
+                  setDeactivateReason('');
+                  setDeactivateDescription('');
+                  setError('');
+                }}
+                className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-400 hover:text-white" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3">
+                <p className="text-sm text-red-300 font-bold">⚠️ Warning: This will deactivate {selectedCompany.companyName}</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  All users in this company will lose access to alerts and systems until reactivated.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold tracking-wide uppercase text-slate-400 font-mono">
+                  Reason <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={deactivateReason}
+                  onChange={(e) => setDeactivateReason(e.target.value)}
+                  placeholder="e.g. Payment not received, Service suspension..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-red-500/50 transition-all"
+                  autoFocus
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold tracking-wide uppercase text-slate-400 font-mono">
+                  Description <span className="text-slate-500">(Optional)</span>
+                </label>
+                <textarea
+                  value={deactivateDescription}
+                  onChange={(e) => setDeactivateDescription(e.target.value)}
+                  placeholder="Additional details about deactivation..."
+                  rows="3"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-red-500/50 transition-all resize-none"
+                />
+              </div>
+
+              {error && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 flex items-start gap-2.5 text-sm text-red-400">
+                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => {
+                    setShowDeactivateModal(false);
+                    setSelectedCompany(null);
+                    setDeactivateReason('');
+                    setDeactivateDescription('');
+                    setError('');
+                  }}
+                  className="flex-1 py-2.5 border border-slate-700 text-slate-400 hover:text-white rounded-xl text-sm font-mono transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeactivateConfirm}
+                  disabled={deactivating || !deactivateReason.trim()}
+                  className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-sm font-mono transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {deactivating ? (
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <PowerOff className="w-4 h-4" />
+                      Deactivate
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===== CREATE MODAL ===== */}
       {showCreateModal && (
@@ -475,7 +672,7 @@ function CompanyFormModal({ title, formData, setFormData, onClose, onSubmit, loa
         </div>
 
         <form onSubmit={onSubmit} className="p-5 space-y-4">
-          {/* ===== Company Code (Auto-Generated) ===== */}
+          {/* Company Code - Auto-generated */}
           {!isEdit && generatedCode && (
             <div className="space-y-1.5">
               <label className="text-xs font-bold tracking-wide uppercase text-slate-400 font-mono flex items-center gap-2">
@@ -487,7 +684,7 @@ function CompanyFormModal({ title, formData, setFormData, onClose, onSubmit, loa
                   title="Copy company code"
                 >
                   {codeCopied ? (
-                    <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                    <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-400" />
                   ) : (
                     <Copy className="w-3.5 h-3.5 text-slate-400 hover:text-white" />
                   )}
@@ -618,15 +815,17 @@ function CompanyFormModal({ title, formData, setFormData, onClose, onSubmit, loa
             {/* Status */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold tracking-wide uppercase text-slate-400 font-mono">Status</label>
-              <select
+              <input
+                type="text"
                 name="status"
-                value={formData.status}
-                onChange={handleChange}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500/50"
-              >
-                <option value="ACTIVE">ACTIVE</option>
-                <option value="INACTIVE">INACTIVE</option>
-              </select>
+                value={formData.status || 'ACTIVE'}
+                readOnly
+                className={`w-full bg-slate-950/50 border border-slate-800 rounded-xl px-4 py-2.5 text-sm font-semibold cursor-not-allowed focus:outline-none ${
+                  formData.status === 'ACTIVE' 
+                    ? 'text-emerald-400' 
+                    : 'text-red-400'
+                }`}
+              />
             </div>
 
             {/* Notes */}
@@ -686,6 +885,7 @@ CompanyFormModal.propTypes = {
 function CompanyViewModal({ company, systems, users, onClose }) {
   const activeSystems = systems.filter(s => s.status === 'ACTIVE').length;
   const adminUsers = users.filter(u => u.role === 'ADMIN').length;
+  const isActive = company.status === 'ACTIVE';
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -704,6 +904,48 @@ function CompanyViewModal({ company, systems, users, onClose }) {
         </div>
 
         <div className="p-5 space-y-6">
+          {/* Status Banner */}
+          <div className={`rounded-xl p-4 border ${
+            isActive 
+              ? 'bg-emerald-500/10 border-emerald-500/30' 
+              : 'bg-red-500/10 border-red-500/30'
+          }`}>
+            <div className="flex items-center gap-3">
+              {isActive ? (
+                <span className="text-emerald-400 text-lg">🟢</span>
+              ) : (
+                <span className="text-red-400 text-lg">🔴</span>
+              )}
+              <div>
+                <p className={`font-bold ${isActive ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {isActive ? 'ACTIVE' : 'INACTIVE'}
+                </p>
+                {!isActive && company.inactivationReason && (
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Reason: {company.inactivationReason}
+                  </p>
+                )}
+                {!isActive && company.inactivatedBy && (
+                  <p className="text-[10px] text-slate-500 font-mono">
+                    Deactivated by: {company.inactivatedBy} • 
+                    {company.inactivatedAt && new Date(company.inactivatedAt).toLocaleString()}
+                  </p>
+                )}
+                {!isActive && company.inactivationDescription && (
+                  <p className="text-xs text-slate-400 mt-1 border-t border-slate-800 pt-1">
+                    {company.inactivationDescription}
+                  </p>
+                )}
+                {isActive && company.reactivatedBy && (
+                  <p className="text-[10px] text-slate-500 font-mono">
+                    Reactivated by: {company.reactivatedBy} • 
+                    {company.reactivatedAt && new Date(company.reactivatedAt).toLocaleString()}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Company Info */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="bg-slate-950 border border-slate-800 rounded-xl p-3">
@@ -720,7 +962,7 @@ function CompanyViewModal({ company, systems, users, onClose }) {
             </div>
             <div className="bg-slate-950 border border-slate-800 rounded-xl p-3">
               <p className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">Status</p>
-              <span className={`text-sm font-bold ${company.status === 'ACTIVE' ? 'text-emerald-400' : 'text-red-400'}`}>
+              <span className={`text-sm font-bold ${isActive ? 'text-emerald-400' : 'text-red-400'}`}>
                 {company.status}
               </span>
             </div>

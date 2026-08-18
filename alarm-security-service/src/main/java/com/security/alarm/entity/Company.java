@@ -52,6 +52,30 @@ public class Company {
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
 
+    // ============================================================
+    // INACTIVE/ACTIVE STATUS CHANGE FIELDS
+    // ============================================================
+    @Column(name = "status_changed_at")
+    private LocalDateTime statusChangedAt;
+
+    @Column(name = "inactivated_at")
+    private LocalDateTime inactivatedAt;
+
+    @Column(name = "inactivated_by")
+    private String inactivatedBy;
+
+    @Column(name = "inactivation_reason")
+    private String inactivationReason;
+
+    @Column(name = "inactivation_description")
+    private String inactivationDescription;
+
+    @Column(name = "reactivated_at")
+    private LocalDateTime reactivatedAt;
+
+    @Column(name = "reactivated_by")
+    private String reactivatedBy;
+
     @OneToMany(mappedBy = "company", fetch = FetchType.LAZY)
     private List<AlarmSystem> alarmSystems;
 
@@ -62,6 +86,7 @@ public class Company {
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
+        if (status == null) status = "ACTIVE";
     }
 
     @PreUpdate

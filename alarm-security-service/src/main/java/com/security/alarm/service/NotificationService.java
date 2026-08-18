@@ -393,4 +393,115 @@ public class NotificationService {
         }
         return meta;
     }
+
+    // ============================================================
+    // COMPANY DEACTIVATED NOTIFICATION
+    // ============================================================
+    @Transactional
+    public void sendCompanyDeactivatedNotification(Company company, String adminUsername) {
+        if (company == null) return;
+        
+        String title = "⚠️ Company Deactivated - " + company.getCompanyName();
+        String message = "Company " + company.getCompanyName() + " (" + company.getCompanyCode() + 
+                        ") has been DEACTIVATED by " + adminUsername + ".\n" +
+                        "Reason: " + company.getInactivationReason() + "\n" +
+                        (company.getInactivationDescription() != null ? 
+                            "Details: " + company.getInactivationDescription() + "\n" : "") +
+                        "Your access has been restricted until reactivation.";
+        
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("companyId", company.getId());
+        metadata.put("companyCode", company.getCompanyCode());
+        metadata.put("companyName", company.getCompanyName());
+        metadata.put("action", "DEACTIVATE");
+        metadata.put("reason", company.getInactivationReason());
+        metadata.put("inactivatedBy", adminUsername);
+        
+        // Notify all admins
+        createAdminNotifications(
+            "COMPANY_DEACTIVATED",
+            title,
+            message,
+            SEVERITY_WARNING,
+            null,
+            null,
+            adminUsername,
+            metadata
+        );
+        
+        // Notify all users in this company
+        List<User> users = userRepository.findByCompanyId(company.getId());
+        for (User user : users) {
+            try {
+                createNotification(
+                    user.getId(),
+                    "COMPANY_DEACTIVATED",
+                    title,
+                    message,
+                    SEVERITY_WARNING,
+                    null,
+                    null,
+                    adminUsername,
+                    metadata
+                );
+            } catch (Exception e) {
+                logger.error("Failed to send deactivation notification to user: {}", user.getUsername(), e);
+            }
+        }
+        
+        logger.info("📬 Company deactivation notification sent to {} users", users.size());
+    }
+
+    // ============================================================
+    // COMPANY REACTIVATED NOTIFICATION
+    // ============================================================
+    @Transactional
+    public void sendCompanyReactivatedNotification(Company company, String adminUsername) {
+        if (company == null) return;
+        
+        String title = "✅ Company Reactivated - " + company.getCompanyName();
+        String message = "Company " + company.getCompanyName() + " (" + company.getCompanyCode() + 
+                        ") has been REACTIVATED by " + adminUsername + ".\n" +
+                        "All systems and alerts are now accessible again.";
+        
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("companyId", company.getId());
+        metadata.put("companyCode", company.getCompanyCode());
+        metadata.put("companyName", company.getCompanyName());
+        metadata.put("action", "REACTIVATE");
+        
+        // Notify all admins
+        createAdminNotifications(
+            "COMPANY_REACTIVATED",
+            title,
+            message,
+            SEVERITY_INFO,
+            null,
+            null,
+            adminUsername,
+            metadata
+        );
+        
+        // Notify all users in this company
+        List<User> users = userRepository.findByCompanyId(company.getId());
+        for (User user : users) {
+            try {
+                createNotification(
+                    user.getId(),
+                    "COMPANY_REACTIVATED",
+                    title,
+                    message,
+                    SEVERITY_INFO,
+                    null,
+                    null,
+                    adminUsername,
+                    metadata
+                );
+            } catch (Exception e) {
+                logger.error("Failed to send reactivation notification to user: {}", user.getUsername(), e);
+            }
+        }
+        
+        logger.info("📬 Company reactivation notification sent to {} users", users.size());
+    }
 }

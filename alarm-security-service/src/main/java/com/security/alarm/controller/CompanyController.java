@@ -7,6 +7,9 @@ import com.security.alarm.repository.CompanyRepository;
 import com.security.alarm.repository.AlarmSystemRepository;
 import com.security.alarm.repository.UserRepository;
 import com.security.alarm.service.PermissionService;
+import com.security.alarm.service.NotificationService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,22 +18,27 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api/admin/companies")
-@CrossOrigin(origins = "*", allowedHeaders = "*", methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.OPTIONS})
+@CrossOrigin(origins = "*", allowedHeaders = "*", methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.PATCH, RequestMethod.OPTIONS})
 public class CompanyController {
+
+    private static final Logger logger = LoggerFactory.getLogger(CompanyController.class);
 
     private final CompanyRepository companyRepository;
     private final AlarmSystemRepository alarmSystemRepository;
     private final UserRepository userRepository;
     private final PermissionService permissionService;
+    private final NotificationService notificationService;
 
     public CompanyController(CompanyRepository companyRepository,
                              AlarmSystemRepository alarmSystemRepository,
                              UserRepository userRepository,
-                             PermissionService permissionService) {
+                             PermissionService permissionService,
+                             NotificationService notificationService) {
         this.companyRepository = companyRepository;
         this.alarmSystemRepository = alarmSystemRepository;
         this.userRepository = userRepository;
         this.permissionService = permissionService;
+        this.notificationService = notificationService;
     }
 
     private String generateCompanyCode() {
@@ -52,9 +60,8 @@ public class CompanyController {
     }
 
     // ============================================================
-    // GET ALL COMPANIES - SIMPLIFIED
+    // GET ALL COMPANIES
     // ============================================================
-    
     @GetMapping
     public ResponseEntity<?> getAllCompanies(@RequestParam(required = false) String username) {
         try {
@@ -83,9 +90,8 @@ public class CompanyController {
     }
 
     // ============================================================
-    // GET COMPANY BY ID - SIMPLIFIED
+    // GET COMPANY BY ID - WITH FULL DETAILS
     // ============================================================
-    
     @GetMapping("/{id}")
     public ResponseEntity<?> getCompanyById(@PathVariable Long id,
                                             @RequestParam(required = false) String username) {
@@ -99,7 +105,13 @@ public class CompanyController {
             
             Company company = companyOpt.get();
             
-            // Return just the company object (simplified)
+            // Permission check
+            if (username != null && !username.isEmpty()) {
+                if (!permissionService.canAccessCompany(username, company)) {
+                    return ResponseEntity.status(403).body("Access denied");
+                }
+            }
+            
             Map<String, Object> response = new HashMap<>();
             response.put("id", company.getId());
             response.put("companyCode", company.getCompanyCode());
@@ -113,7 +125,16 @@ public class CompanyController {
             response.put("createdAt", company.getCreatedAt());
             response.put("updatedAt", company.getUpdatedAt());
             
-            // Get counts - with error handling
+            // ===== INACTIVE DETAILS =====
+            response.put("inactivatedAt", company.getInactivatedAt());
+            response.put("inactivatedBy", company.getInactivatedBy());
+            response.put("inactivationReason", company.getInactivationReason());
+            response.put("inactivationDescription", company.getInactivationDescription());
+            response.put("reactivatedAt", company.getReactivatedAt());
+            response.put("reactivatedBy", company.getReactivatedBy());
+            response.put("statusChangedAt", company.getStatusChangedAt());
+            
+            // Get counts
             long systemCount = 0;
             long userCount = 0;
             try {
@@ -141,9 +162,87 @@ public class CompanyController {
     }
 
     // ============================================================
-    // UPDATE COMPANY - SIMPLIFIED
+    // GET SYSTEMS BY COMPANY
     // ============================================================
-    
+    @GetMapping("/{id}/systems")
+    public ResponseEntity<?> getCompanySystems(@PathVariable Long id,
+                                               @RequestParam(required = false) String username) {
+        try {
+            if (username != null && !username.isEmpty()) {
+                if (!permissionService.canAccessCompany(username, id)) {
+                    return ResponseEntity.status(403).body("Access denied");
+                }
+            }
+            
+            List<AlarmSystem> systems = alarmSystemRepository.findByCompanyId(id);
+            return ResponseEntity.ok(systems);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
+
+    // ============================================================
+    // GET USERS BY COMPANY
+    // ============================================================
+    @GetMapping("/{id}/users")
+    public ResponseEntity<?> getCompanyUsers(@PathVariable Long id,
+                                             @RequestParam(required = false) String username) {
+        try {
+            if (username != null && !username.isEmpty()) {
+                if (!permissionService.canAccessCompany(username, id)) {
+                    return ResponseEntity.status(403).body("Access denied");
+                }
+            }
+            
+            List<User> users = userRepository.findByCompanyId(id);
+            return ResponseEntity.ok(users);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
+
+    // ============================================================
+    // CREATE COMPANY
+    // ============================================================
+    @PostMapping
+    public ResponseEntity<?> createCompany(@RequestBody Company company,
+                                           @RequestParam(required = false) String username) {
+        try {
+            if (username != null && !username.isEmpty()) {
+                if (!permissionService.isAdmin(username)) {
+                    return ResponseEntity.status(403).body("Access denied: Only Admin can create companies");
+                }
+            }
+            
+            if (company.getCompanyName() == null || company.getCompanyName().trim().isEmpty()) {
+                return ResponseEntity.badRequest().body("Company name is required");
+            }
+            
+            if (companyRepository.findByCompanyName(company.getCompanyName().trim()).isPresent()) {
+                return ResponseEntity.badRequest().body("Company name already exists");
+            }
+            
+            company.setCompanyCode(generateCompanyCode());
+            company.setStatus(company.getStatus() != null ? company.getStatus() : "ACTIVE");
+            company.setCreatedAt(LocalDateTime.now());
+            company.setUpdatedAt(LocalDateTime.now());
+            
+            Company saved = companyRepository.save(company);
+            return ResponseEntity.ok(saved);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Error creating company: " + e.getMessage());
+        }
+    }
+
+    // ============================================================
+    // UPDATE COMPANY
+    // ============================================================
     @PutMapping("/{id}")
     public ResponseEntity<?> updateCompany(@PathVariable Long id,
                                            @RequestBody Map<String, Object> payload,
@@ -157,6 +256,16 @@ public class CompanyController {
             }
             
             Company existing = existingOpt.get();
+            
+            // Permission check
+            if (username != null && !username.isEmpty()) {
+                if (permissionService.isUser(username)) {
+                    Long userCompanyId = permissionService.getUserCompanyId(username);
+                    if (userCompanyId == null || !userCompanyId.equals(id)) {
+                        return ResponseEntity.status(403).body("Access denied");
+                    }
+                }
+            }
             
             // Update fields from payload
             if (payload.containsKey("companyName") && payload.get("companyName") != null) {
@@ -225,9 +334,132 @@ public class CompanyController {
     }
 
     // ============================================================
-    // DELETE COMPANY - ADMIN ONLY
+    // DEACTIVATE COMPANY (ADMIN ONLY)
     // ============================================================
-    
+    @PatchMapping("/{id}/deactivate")
+    public ResponseEntity<?> deactivateCompany(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> payload,
+            @RequestParam String username) {
+        
+        try {
+            // Only Admin can deactivate
+            if (!permissionService.isAdmin(username)) {
+                return ResponseEntity.status(403).body("Access denied: Only Admin can deactivate companies");
+            }
+            
+            Optional<Company> companyOpt = companyRepository.findById(id);
+            if (companyOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            Company company = companyOpt.get();
+            
+            // Check if already inactive
+            if ("INACTIVE".equals(company.getStatus())) {
+                return ResponseEntity.badRequest().body("Company is already INACTIVE");
+            }
+            
+            // Validate reason
+            String reason = payload.get("reason");
+            if (reason == null || reason.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body("Reason is required to deactivate company");
+            }
+            
+            String description = payload.get("description");
+            
+            // Update status
+            company.setStatus("INACTIVE");
+            company.setStatusChangedAt(LocalDateTime.now());
+            company.setInactivatedAt(LocalDateTime.now());
+            company.setInactivatedBy(username);
+            company.setInactivationReason(reason.trim());
+            company.setInactivationDescription(description != null ? description.trim() : null);
+            
+            Company saved = companyRepository.save(company);
+            
+            // Send notification to all company users
+            try {
+                notificationService.sendCompanyDeactivatedNotification(saved, username);
+            } catch (Exception e) {
+                logger.error("Failed to send deactivation notification: {}", e.getMessage());
+            }
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Company deactivated successfully");
+            response.put("company", saved);
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            logger.error("Error deactivating company: {}", e.getMessage());
+            return ResponseEntity.status(500).body("Error deactivating company: " + e.getMessage());
+        }
+    }
+
+    // ============================================================
+    // REACTIVATE COMPANY (ADMIN ONLY)
+    // ============================================================
+    @PatchMapping("/{id}/reactivate")
+    public ResponseEntity<?> reactivateCompany(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> payload,
+            @RequestParam String username) {
+        
+        try {
+            // Only Admin can reactivate
+            if (!permissionService.isAdmin(username)) {
+                return ResponseEntity.status(403).body("Access denied: Only Admin can reactivate companies");
+            }
+            
+            Optional<Company> companyOpt = companyRepository.findById(id);
+            if (companyOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            Company company = companyOpt.get();
+            
+            // Check if already active
+            if ("ACTIVE".equals(company.getStatus())) {
+                return ResponseEntity.badRequest().body("Company is already ACTIVE");
+            }
+            
+            String note = payload.get("note");
+            
+            // Update status
+            company.setStatus("ACTIVE");
+            company.setStatusChangedAt(LocalDateTime.now());
+            company.setReactivatedAt(LocalDateTime.now());
+            company.setReactivatedBy(username);
+            
+            Company saved = companyRepository.save(company);
+            
+            // Send notification to all company users
+            try {
+                notificationService.sendCompanyReactivatedNotification(saved, username);
+            } catch (Exception e) {
+                logger.error("Failed to send reactivation notification: {}", e.getMessage());
+            }
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Company reactivated successfully");
+            response.put("company", saved);
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            logger.error("Error reactivating company: {}", e.getMessage());
+            return ResponseEntity.status(500).body("Error reactivating company: " + e.getMessage());
+        }
+    }
+
+    // ============================================================
+    // DELETE COMPANY (ADMIN ONLY)
+    // ============================================================
     @DeleteMapping("/{id}")
     public ResponseEntity<?> deleteCompany(@PathVariable Long id,
                                            @RequestParam(required = false) String username) {
@@ -267,45 +499,8 @@ public class CompanyController {
     }
 
     // ============================================================
-    // CREATE COMPANY - ADMIN ONLY
+    // GET COMPANY STATS (ADMIN ONLY)
     // ============================================================
-    
-    @PostMapping
-    public ResponseEntity<?> createCompany(@RequestBody Company company,
-                                           @RequestParam(required = false) String username) {
-        try {
-            if (username != null && !username.isEmpty()) {
-                if (!permissionService.isAdmin(username)) {
-                    return ResponseEntity.status(403).body("Access denied: Only Admin can create companies");
-                }
-            }
-            
-            if (company.getCompanyName() == null || company.getCompanyName().trim().isEmpty()) {
-                return ResponseEntity.badRequest().body("Company name is required");
-            }
-            
-            if (companyRepository.findByCompanyName(company.getCompanyName().trim()).isPresent()) {
-                return ResponseEntity.badRequest().body("Company name already exists");
-            }
-            
-            company.setCompanyCode(generateCompanyCode());
-            company.setStatus(company.getStatus() != null ? company.getStatus() : "ACTIVE");
-            company.setCreatedAt(LocalDateTime.now());
-            company.setUpdatedAt(LocalDateTime.now());
-            
-            Company saved = companyRepository.save(company);
-            return ResponseEntity.ok(saved);
-            
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(500).body("Error creating company: " + e.getMessage());
-        }
-    }
-
-    // ============================================================
-    // GET COMPANY STATS - ADMIN ONLY
-    // ============================================================
-    
     @GetMapping("/stats")
     public ResponseEntity<?> getCompanyStats(@RequestParam(required = false) String username) {
         try {
@@ -318,7 +513,8 @@ public class CompanyController {
             List<Company> companies = companyRepository.findAll();
             Map<String, Object> stats = new HashMap<>();
             stats.put("totalCompanies", companies.size());
-            stats.put("activeCompanies", companies.stream().filter(c -> "ACTIVE".equals(c.getStatus())).count());
+            stats.put("activeCompanies", companyRepository.countActiveCompanies());
+            stats.put("inactiveCompanies", companyRepository.countInactiveCompanies());
             
             long totalSystems = 0;
             long totalUsers = 0;
@@ -330,50 +526,6 @@ public class CompanyController {
             stats.put("totalUsers", totalUsers);
             
             return ResponseEntity.ok(stats);
-            
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(500).body("Error: " + e.getMessage());
-        }
-    }
-
-    // ============================================================
-    // GET SYSTEMS BY COMPANY
-    // ============================================================
-    @GetMapping("/{id}/systems")
-    public ResponseEntity<?> getCompanySystems(@PathVariable Long id,
-                                            @RequestParam(required = false) String username) {
-        try {
-            if (username != null && !username.isEmpty()) {
-                if (!permissionService.canAccessCompany(username, id)) {
-                    return ResponseEntity.status(403).body("Access denied");
-                }
-            }
-            
-            List<AlarmSystem> systems = alarmSystemRepository.findByCompanyId(id);
-            return ResponseEntity.ok(systems);
-            
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(500).body("Error: " + e.getMessage());
-        }
-    }
-
-    // ============================================================
-    // GET USERS BY COMPANY
-    // ============================================================
-    @GetMapping("/{id}/users")
-    public ResponseEntity<?> getCompanyUsers(@PathVariable Long id,
-                                            @RequestParam(required = false) String username) {
-        try {
-            if (username != null && !username.isEmpty()) {
-                if (!permissionService.canAccessCompany(username, id)) {
-                    return ResponseEntity.status(403).body("Access denied");
-                }
-            }
-            
-            List<User> users = userRepository.findByCompanyId(id);
-            return ResponseEntity.ok(users);
             
         } catch (Exception e) {
             e.printStackTrace();

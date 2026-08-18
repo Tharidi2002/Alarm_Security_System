@@ -449,4 +449,50 @@ public class PermissionService {
         }
         return "Unknown";
     }
+
+    // ============================================================
+    // CHECK IF COMPANY IS ACTIVE
+    // ============================================================
+    public boolean isCompanyActive(Long companyId) {
+        if (companyId == null) return false;
+        Optional<Company> companyOpt = companyRepository.findById(companyId);
+        if (companyOpt.isEmpty()) return false;
+        return "ACTIVE".equals(companyOpt.get().getStatus());
+    }
+
+    public boolean isCompanyActive(Company company) {
+        if (company == null) return false;
+        return "ACTIVE".equals(company.getStatus());
+    }
+
+    public boolean isCompanyInactive(Long companyId) {
+        return !isCompanyActive(companyId);
+    }
+
+    public boolean canAccessCompanyData(String username) {
+        if (isAdmin(username)) return true;
+        if (isUser(username)) {
+            Long companyId = getUserCompanyId(username);
+            if (companyId == null) return false;
+            return isCompanyActive(companyId);
+        }
+        return false;
+    }
+
+    public String getCompanyStatusMessage(String username) {
+        if (isAdmin(username)) return null;
+        if (isUser(username)) {
+            Long companyId = getUserCompanyId(username);
+            if (companyId == null) return "No company assigned";
+            Optional<Company> companyOpt = companyRepository.findById(companyId);
+            if (companyOpt.isEmpty()) return "Company not found";
+            Company company = companyOpt.get();
+            if ("INACTIVE".equals(company.getStatus())) {
+                return "⚠️ Your company (" + company.getCompanyName() + 
+                    ") is currently INACTIVE. Please contact administrator.";
+            }
+            return null;
+        }
+        return null;
+    }
 }
