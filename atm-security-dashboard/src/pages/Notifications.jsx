@@ -3,9 +3,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { 
-    Bell, BellRing, CheckCheck, Eye, EyeOff,
-    Filter, X, Loader2, AlertCircle, ChevronLeft,
-    ArrowLeft, Trash2
+    Bell, BellRing, CheckCheck, Eye, 
+    Filter, X, Loader2, AlertCircle,
+    ArrowLeft, Trash2, RefreshCw
 } from 'lucide-react';
 import { 
     getNotifications, 
@@ -20,7 +20,7 @@ export default function Notifications({ user, onBack }) {
     const [notifications, setNotifications] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [filter, setFilter] = useState('all'); // all, unread, critical
+    const [filter, setFilter] = useState('all');
     const [page, setPage] = useState(0);
     const [hasMore, setHasMore] = useState(true);
     const [unreadCount, setUnreadCount] = useState(0);
@@ -28,6 +28,7 @@ export default function Notifications({ user, onBack }) {
     const [selectedIds, setSelectedIds] = useState([]);
     const [selectMode, setSelectMode] = useState(false);
     const [markingAll, setMarkingAll] = useState(false);
+    const [lastRefresh, setLastRefresh] = useState(new Date());
 
     const username = user?.username;
 
@@ -56,6 +57,7 @@ export default function Notifications({ user, onBack }) {
             setHasMore(data.hasMore || false);
             setUnreadCount(data.unreadCount || 0);
             setCriticalCount(data.criticalCount || 0);
+            setLastRefresh(new Date());
             
         } catch (err) {
             setError(err.message || 'Failed to load notifications');
@@ -65,12 +67,34 @@ export default function Notifications({ user, onBack }) {
     }, [username, filter, page]);
 
     // ============================================================
-    // INITIAL LOAD & REFRESH
+    // UPDATE UNREAD COUNT
+    // ============================================================
+
+    const updateUnreadCount = useCallback(async () => {
+        try {
+            const data = await getUnreadCount(username);
+            setUnreadCount(data.unreadCount || 0);
+            setCriticalCount(data.criticalCount || 0);
+        } catch (err) {
+            console.error('Failed to update unread count:', err);
+        }
+    }, [username]);
+
+    // ============================================================
+    // INITIAL LOAD + AUTO-REFRESH (Every 10 seconds)
     // ============================================================
 
     useEffect(() => {
         loadNotifications(true);
-    }, [username, filter]);
+        
+        const interval = setInterval(() => {
+            console.log('🔄 Auto-refreshing notifications...');
+            loadNotifications(true);
+            updateUnreadCount();
+        }, 10000);
+        
+        return () => clearInterval(interval);
+    }, [username, filter, loadNotifications, updateUnreadCount]);
 
     // ============================================================
     // MARK AS READ
@@ -82,7 +106,7 @@ export default function Notifications({ user, onBack }) {
             setNotifications(prev => 
                 prev.map(n => n.id === id ? { ...n, isRead: true } : n)
             );
-            updateCounts();
+            updateUnreadCount();
         } catch (err) {
             console.error('Failed to mark as read:', err);
         }
@@ -104,7 +128,7 @@ export default function Notifications({ user, onBack }) {
             );
             setSelectedIds([]);
             setSelectMode(false);
-            updateCounts();
+            updateUnreadCount();
         } catch (err) {
             console.error('Failed to mark selected as read:', err);
         }
@@ -121,7 +145,7 @@ export default function Notifications({ user, onBack }) {
             setNotifications(prev => 
                 prev.map(n => ({ ...n, isRead: true }))
             );
-            updateCounts();
+            updateUnreadCount();
         } catch (err) {
             console.error('Failed to mark all as read:', err);
         } finally {
@@ -139,7 +163,7 @@ export default function Notifications({ user, onBack }) {
         try {
             await deleteNotification(id, username);
             setNotifications(prev => prev.filter(n => n.id !== id));
-            updateCounts();
+            updateUnreadCount();
         } catch (err) {
             console.error('Failed to delete:', err);
         }
@@ -160,7 +184,7 @@ export default function Notifications({ user, onBack }) {
             setNotifications(prev => prev.filter(n => !selectedIds.includes(n.id)));
             setSelectedIds([]);
             setSelectMode(false);
-            updateCounts();
+            updateUnreadCount();
         } catch (err) {
             console.error('Failed to delete selected:', err);
         }
@@ -187,26 +211,20 @@ export default function Notifications({ user, onBack }) {
     };
 
     // ============================================================
-    // UPDATE COUNTS
-    // ============================================================
-
-    const updateCounts = async () => {
-        try {
-            const data = await getUnreadCount(username);
-            setUnreadCount(data.unreadCount || 0);
-            setCriticalCount(data.criticalCount || 0);
-        } catch (err) {
-            console.error('Failed to update counts:', err);
-        }
-    };
-
-    // ============================================================
     // LOAD MORE
     // ============================================================
 
     const handleLoadMore = () => {
         setPage(prev => prev + 1);
-        // loadNotifications will be triggered by useEffect
+    };
+
+    // ============================================================
+    // MANUAL REFRESH
+    // ============================================================
+
+    const handleManualRefresh = () => {
+        loadNotifications(true);
+        updateUnreadCount();
     };
 
     // ============================================================
@@ -221,15 +239,11 @@ export default function Notifications({ user, onBack }) {
         const diffMins = Math.floor(diffMs / 60000);
         const diffHours = Math.floor(diffMins / 60);
         const diffDays = Math.floor(diffHours / 24);
-        const diffMonths = Math.floor(diffDays / 30);
-        const diffYears = Math.floor(diffDays / 365);
 
         if (diffMins < 1) return 'Just now';
         if (diffMins < 60) return `${diffMins}m ago`;
         if (diffHours < 24) return `${diffHours}h ago`;
-        if (diffDays < 30) return `${diffDays}d ago`;
-        if (diffMonths < 12) return `${diffMonths}mo ago`;
-        return `${diffYears}y ago`;
+        return `${diffDays}d ago`;
     };
 
     // ============================================================
@@ -250,7 +264,9 @@ export default function Notifications({ user, onBack }) {
             'USER_DELETED': '❌',
             'HEARTBEAT_LOST': '📡',
             'HEARTBEAT_RESTORED': '📶',
-            'ZONE_UPDATED': '✏️'
+            'ZONE_UPDATED': '✏️',
+            'COMPANY_DEACTIVATED': '🚫',
+            'COMPANY_REACTIVATED': '✅'
         };
         return icons[type] || '📌';
     };
@@ -272,8 +288,6 @@ export default function Notifications({ user, onBack }) {
     // RENDER
     // ============================================================
 
-    const unreadNotifs = notifications.filter(n => !n.isRead);
-
     return (
         <div className="min-h-screen bg-slate-950 text-slate-100">
             {/* Header */}
@@ -292,7 +306,7 @@ export default function Notifications({ user, onBack }) {
                             <h1 className="text-lg font-bold text-white">Notifications</h1>
                             {unreadCount > 0 && (
                                 <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded-full font-mono">
-                                    {unreadCount} unread
+                                    {unreadCount} new
                                 </span>
                             )}
                             {criticalCount > 0 && (
@@ -332,6 +346,13 @@ export default function Notifications({ user, onBack }) {
                         ) : (
                             <>
                                 <button
+                                    onClick={handleManualRefresh}
+                                    className="p-2 hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-white"
+                                    title="Refresh"
+                                >
+                                    <RefreshCw className="w-4 h-4" />
+                                </button>
+                                <button
                                     onClick={() => setSelectMode(true)}
                                     className="p-2 hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-white"
                                     title="Select multiple"
@@ -357,30 +378,45 @@ export default function Notifications({ user, onBack }) {
                 </div>
             </div>
 
-            {/* Filters */}
+            {/* Filters & Refresh Info */}
             <div className="max-w-4xl mx-auto px-4 pt-4 pb-2">
-                <div className="flex gap-2 flex-wrap">
-                    {[
-                        { id: 'all', label: 'All', icon: <Bell className="w-3 h-3" /> },
-                        { id: 'unread', label: 'Unread', icon: <BellRing className="w-3 h-3" /> },
-                        { id: 'critical', label: 'Critical', icon: <AlertCircle className="w-3 h-3" /> }
-                    ].map((tab) => (
-                        <button
-                            key={tab.id}
-                            onClick={() => {
-                                setFilter(tab.id);
-                                setPage(0);
-                            }}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono transition-all ${
-                                filter === tab.id
-                                    ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                            }`}
-                        >
-                            {tab.icon}
-                            {tab.label}
-                        </button>
-                    ))}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex gap-2 flex-wrap">
+                        {[
+                            { id: 'all', label: 'All', icon: <Bell className="w-3 h-3" /> },
+                            { id: 'unread', label: 'Unread', icon: <BellRing className="w-3 h-3" /> },
+                            { id: 'critical', label: 'Critical', icon: <AlertCircle className="w-3 h-3" /> }
+                        ].map((tab) => (
+                            <button
+                                key={tab.id}
+                                onClick={() => {
+                                    setFilter(tab.id);
+                                    setPage(0);
+                                }}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono transition-all ${
+                                    filter === tab.id
+                                        ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                                }`}
+                            >
+                                {tab.icon}
+                                {tab.label}
+                                {tab.id === 'unread' && unreadCount > 0 && (
+                                    <span className="ml-1 text-[10px] bg-yellow-500/30 px-1.5 py-0.5 rounded-full">
+                                        {unreadCount}
+                                    </span>
+                                )}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-mono flex items-center gap-2">
+                        <span>🔄 Auto-refresh every 10s</span>
+                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
+                        <span className="text-slate-600">|</span>
+                        <span>{notifications.length} notifications</span>
+                        <span className="text-slate-600">|</span>
+                        <span className="text-slate-600">{lastRefresh.toLocaleTimeString()}</span>
+                    </div>
                 </div>
             </div>
 
@@ -423,80 +459,88 @@ export default function Notifications({ user, onBack }) {
                 ) : (
                     <>
                         <div className="space-y-2">
-                            {notifications.map((notification) => (
-                                <div
-                                    key={notification.id}
-                                    className={`p-4 rounded-xl border transition-all ${
-                                        notification.isRead
-                                            ? 'bg-slate-950/50 border-slate-800 opacity-60'
-                                            : 'bg-slate-900 border-slate-700 hover:border-slate-600'
-                                    }`}
-                                >
-                                    <div className="flex items-start gap-3">
-                                        {selectMode && (
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedIds.includes(notification.id)}
-                                                onChange={() => toggleSelect(notification.id)}
-                                                className="mt-1.5 w-4 h-4 rounded border-slate-700 bg-slate-800 text-red-500 focus:ring-red-500 focus:ring-offset-0"
-                                            />
-                                        )}
-                                        <div className="text-2xl flex-shrink-0">
-                                            {getTypeIcon(notification.type)}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <h3 className={`text-sm font-bold ${
-                                                    notification.isRead ? 'text-slate-400' : 'text-white'
-                                                }`}>
-                                                    {notification.title}
-                                                </h3>
-                                                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${getSeverityColor(notification.severity)}`}>
-                                                    {notification.severity}
-                                                </span>
-                                                {!notification.isRead && (
-                                                    <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse flex-shrink-0" />
-                                                )}
-                                            </div>
-                                            <p className={`text-sm mt-1 ${
-                                                notification.isRead ? 'text-slate-500' : 'text-slate-300'
-                                            }`}>
-                                                {notification.message}
-                                            </p>
-                                            <div className="flex items-center gap-3 mt-2 text-xs text-slate-500 font-mono flex-wrap">
-                                                <span>{formatTime(notification.createdAt)}</span>
-                                                {notification.actionBy && (
-                                                    <span>• By: {notification.actionBy}</span>
-                                                )}
-                                                {notification.system?.systemCode && (
-                                                    <span>• System: {notification.system.systemCode}</span>
-                                                )}
-                                                {notification.alertId && (
-                                                    <span>• Alert #{notification.alertId}</span>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-1 flex-shrink-0">
-                                            {!notification.isRead && (
-                                                <button
-                                                    onClick={() => handleMarkAsRead(notification.id)}
-                                                    className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-blue-400"
-                                                    title="Mark as read"
-                                                >
-                                                    <Eye className="w-4 h-4" />
-                                                </button>
+                            {notifications.map((notification) => {
+                                const isRead = notification.isRead || false;
+                                return (
+                                    <div
+                                        key={notification.id}
+                                        className={`p-4 rounded-xl border transition-all ${
+                                            isRead
+                                                ? 'bg-slate-950/50 border-slate-800 opacity-60'
+                                                : 'bg-slate-900 border-slate-700 hover:border-slate-600'
+                                        }`}
+                                    >
+                                        <div className="flex items-start gap-3">
+                                            {selectMode && (
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedIds.includes(notification.id)}
+                                                    onChange={() => toggleSelect(notification.id)}
+                                                    className="mt-1.5 w-4 h-4 rounded border-slate-700 bg-slate-800 text-red-500 focus:ring-red-500 focus:ring-offset-0"
+                                                />
                                             )}
-                                            <button
-                                                onClick={() => handleDelete(notification.id)}
-                                                className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-red-400"
-                                                title="Delete"
-                                            >
-                                                <Trash2 className="w-4 h-4" />
-                                            </button>
+                                            <div className="text-2xl flex-shrink-0">
+                                                {getTypeIcon(notification.type)}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <h3 className={`text-sm font-bold ${
+                                                        isRead ? 'text-slate-400' : 'text-white'
+                                                    }`}>
+                                                        {notification.title}
+                                                    </h3>
+                                                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${getSeverityColor(notification.severity)}`}>
+                                                        {notification.severity}
+                                                    </span>
+                                                    {!isRead && (
+                                                        <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse flex-shrink-0" />
+                                                    )}
+                                                    {notification.actionBy && (
+                                                        <span className="text-[10px] text-slate-500 font-mono">
+                                                            By: {notification.actionBy}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <p className={`text-sm mt-1 ${
+                                                    isRead ? 'text-slate-500' : 'text-slate-300'
+                                                }`}>
+                                                    {notification.message}
+                                                </p>
+                                                <div className="flex items-center gap-3 mt-2 text-xs text-slate-500 font-mono flex-wrap">
+                                                    <span>{formatTime(notification.createdAt)}</span>
+                                                    {notification.system?.systemCode && (
+                                                        <span>• {notification.system.systemCode}</span>
+                                                    )}
+                                                    {notification.alertId && (
+                                                        <span>• Alert #{notification.alertId}</span>
+                                                    )}
+                                                    {notification.company?.companyName && (
+                                                        <span>• {notification.company.companyName}</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-1 flex-shrink-0">
+                                                {!isRead && (
+                                                    <button
+                                                        onClick={() => handleMarkAsRead(notification.id)}
+                                                        className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-blue-400"
+                                                        title="Mark as read"
+                                                    >
+                                                        <Eye className="w-4 h-4" />
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => handleDelete(notification.id)}
+                                                    className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-red-400"
+                                                    title="Delete"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
 
                         {/* Load More */}

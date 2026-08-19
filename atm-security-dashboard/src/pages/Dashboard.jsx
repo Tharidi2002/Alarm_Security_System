@@ -7,6 +7,7 @@ import NotificationToast from '../components/NotificationToast';
 import AdminPanel from '../components/AdminPanel';
 import ReportGenerator from '../components/ReportGenerator';
 import { useAlerts } from '../hooks/useAlerts';
+import { ThermometerSun } from 'lucide-react';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 
@@ -122,6 +123,7 @@ export default function Dashboard({ user, onLogout }) {
       return dateStr;
     }
   };
+
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 font-sans">

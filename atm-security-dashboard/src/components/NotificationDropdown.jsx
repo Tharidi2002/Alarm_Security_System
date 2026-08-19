@@ -18,7 +18,7 @@ export default function NotificationDropdown({
     onClose, 
     onUnreadChange,
     onNotificationClick,
-    isCompanyInactive = false  // ← NEW PROP
+    isCompanyInactive = false
 }) {
     const [notifications, setNotifications] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -28,11 +28,10 @@ export default function NotificationDropdown({
     const [hasMore, setHasMore] = useState(true);
 
     // ============================================================
-    // LOAD NOTIFICATIONS - SKIP IF COMPANY INACTIVE
+    // LOAD NOTIFICATIONS
     // ============================================================
 
     const loadNotifications = async (reset = false) => {
-        // ===== SKIP if company is inactive =====
         if (isCompanyInactive || !username) {
             setLoading(false);
             setNotifications([]);
@@ -64,12 +63,20 @@ export default function NotificationDropdown({
     };
 
     // ============================================================
-    // INITIAL LOAD - SKIP IF INACTIVE
+    // AUTO-REFRESH EVERY 10 SECONDS (for dropdown)
     // ============================================================
 
     useEffect(() => {
         if (!isCompanyInactive) {
             loadNotifications(true);
+            
+            const interval = setInterval(() => {
+                if (!isCompanyInactive) {
+                    loadNotifications(true);
+                }
+            }, 10000);
+            
+            return () => clearInterval(interval);
         } else {
             setLoading(false);
             setNotifications([]);
@@ -77,7 +84,7 @@ export default function NotificationDropdown({
     }, [username, isCompanyInactive]);
 
     // ============================================================
-    // MARK AS READ - SKIP IF INACTIVE
+    // MARK AS READ
     // ============================================================
 
     const handleMarkAsRead = async (id) => {
@@ -95,7 +102,7 @@ export default function NotificationDropdown({
     };
 
     // ============================================================
-    // MARK ALL AS READ - SKIP IF INACTIVE
+    // MARK ALL AS READ
     // ============================================================
 
     const handleMarkAllAsRead = async () => {
@@ -116,7 +123,7 @@ export default function NotificationDropdown({
     };
 
     // ============================================================
-    // DELETE NOTIFICATION - SKIP IF INACTIVE
+    // DELETE NOTIFICATION
     // ============================================================
 
     const handleDelete = async (id) => {
@@ -132,7 +139,7 @@ export default function NotificationDropdown({
     };
 
     // ============================================================
-    // LOAD MORE - SKIP IF INACTIVE
+    // LOAD MORE
     // ============================================================
 
     const handleLoadMore = () => {
@@ -194,7 +201,7 @@ export default function NotificationDropdown({
         const colors = {
             'INFO': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
             'WARNING': 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-            'CRITICAL': 'bg-red-500/10 text-red-400 border-red-500/20 animate-pulse'
+            'CRITICAL': 'bg-red-500/10 text-red-400 border-red-500/20'
         };
         return colors[severity] || 'bg-slate-500/10 text-slate-400 border-slate-500/20';
     };
@@ -205,7 +212,6 @@ export default function NotificationDropdown({
 
     const unreadCount = notifications.filter(n => !n.isRead).length;
 
-    // ===== If company inactive, show disabled message =====
     if (isCompanyInactive) {
         return (
             <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl shadow-black/50 overflow-hidden">
@@ -265,8 +271,15 @@ export default function NotificationDropdown({
                 </div>
             </div>
 
+            {/* Auto-refresh indicator */}
+            <div className="px-4 py-1 text-[8px] text-slate-500 font-mono flex items-center gap-2 border-b border-slate-800">
+                <span>🔄 Auto-refresh every 10s</span>
+                <span className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse"></span>
+                <span>{notifications.length} notifications</span>
+            </div>
+
             {/* Body */}
-            <div className="flex-1 overflow-y-auto p-2 space-y-1.5 max-h-[380px]">
+            <div className="flex-1 overflow-y-auto p-2 space-y-1.5 max-h-[350px]">
                 {loading && notifications.length === 0 ? (
                     <div className="text-center py-8 text-slate-500">
                         <Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin text-slate-600" />
@@ -289,74 +302,77 @@ export default function NotificationDropdown({
                         <p className="text-sm font-mono">No notifications</p>
                     </div>
                 ) : (
-                    notifications.map((notification) => (
-                        <div
-                            key={notification.id}
-                            className={`p-3 rounded-xl border transition-all cursor-pointer ${
-                                notification.isRead
-                                    ? 'bg-slate-950/50 border-slate-800 opacity-60'
-                                    : 'bg-slate-950 border-slate-700 hover:border-slate-600'
-                            }`}
-                            onClick={() => {
-                                if (!notification.isRead && !isCompanyInactive) {
-                                    handleMarkAsRead(notification.id);
-                                }
-                                if (onNotificationClick) {
-                                    onNotificationClick(notification);
-                                }
-                            }}
-                        >
-                            <div className="flex items-start gap-2.5">
-                                <div className="text-xl flex-shrink-0">
-                                    {getTypeIcon(notification.type)}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                        <h4 className={`text-xs font-bold truncate ${
-                                            notification.isRead ? 'text-slate-400' : 'text-white'
+                    notifications.map((notification) => {
+                        const isRead = notification.isRead || false;
+                        return (
+                            <div
+                                key={notification.id}
+                                className={`p-3 rounded-xl border transition-all cursor-pointer ${
+                                    isRead
+                                        ? 'bg-slate-950/50 border-slate-800 opacity-60'
+                                        : 'bg-slate-950 border-slate-700 hover:border-slate-600'
+                                }`}
+                                onClick={() => {
+                                    if (!isRead && !isCompanyInactive) {
+                                        handleMarkAsRead(notification.id);
+                                    }
+                                    if (onNotificationClick) {
+                                        onNotificationClick(notification);
+                                    }
+                                }}
+                            >
+                                <div className="flex items-start gap-2.5">
+                                    <div className="text-xl flex-shrink-0">
+                                        {getTypeIcon(notification.type)}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            <h4 className={`text-xs font-bold truncate ${
+                                                isRead ? 'text-slate-400' : 'text-white'
+                                            }`}>
+                                                {notification.title}
+                                            </h4>
+                                            <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded-full border ${getSeverityColor(notification.severity)}`}>
+                                                {notification.severity}
+                                            </span>
+                                            {!isRead && (
+                                                <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse flex-shrink-0" />
+                                            )}
+                                        </div>
+                                        <p className={`text-[11px] mt-0.5 truncate ${
+                                            isRead ? 'text-slate-500' : 'text-slate-300'
                                         }`}>
-                                            {notification.title}
-                                        </h4>
-                                        <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded-full border ${getSeverityColor(notification.severity)}`}>
-                                            {notification.severity}
-                                        </span>
-                                        {!notification.isRead && (
-                                            <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse flex-shrink-0" />
-                                        )}
+                                            {notification.message}
+                                        </p>
+                                        <div className="flex items-center gap-2 mt-1 text-[9px] text-slate-500 font-mono">
+                                            <span>{formatTime(notification.createdAt)}</span>
+                                            {notification.actionBy && (
+                                                <span>• By: {notification.actionBy}</span>
+                                            )}
+                                            {notification.system?.systemCode && (
+                                                <span>• {notification.system.systemCode}</span>
+                                            )}
+                                        </div>
                                     </div>
-                                    <p className={`text-[11px] mt-0.5 truncate ${
-                                        notification.isRead ? 'text-slate-500' : 'text-slate-300'
-                                    }`}>
-                                        {notification.message}
-                                    </p>
-                                    <div className="flex items-center gap-2 mt-1 text-[9px] text-slate-500 font-mono">
-                                        <span>{formatTime(notification.createdAt)}</span>
-                                        {notification.actionBy && (
-                                            <span>• By: {notification.actionBy}</span>
-                                        )}
-                                        {notification.system?.systemCode && (
-                                            <span>• {notification.system.systemCode}</span>
-                                        )}
-                                    </div>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (!isCompanyInactive) {
+                                                handleDelete(notification.id);
+                                            }
+                                        }}
+                                        className={`p-1 hover:bg-slate-800 rounded-lg transition-colors flex-shrink-0 ${
+                                            isCompanyInactive ? 'opacity-40 cursor-not-allowed' : 'text-slate-500 hover:text-red-400'
+                                        }`}
+                                        title="Delete"
+                                        disabled={isCompanyInactive}
+                                    >
+                                        <X className="w-3 h-3" />
+                                    </button>
                                 </div>
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (!isCompanyInactive) {
-                                            handleDelete(notification.id);
-                                        }
-                                    }}
-                                    className={`p-1 hover:bg-slate-800 rounded-lg transition-colors flex-shrink-0 ${
-                                        isCompanyInactive ? 'opacity-40 cursor-not-allowed' : 'text-slate-500 hover:text-red-400'
-                                    }`}
-                                    title="Delete"
-                                    disabled={isCompanyInactive}
-                                >
-                                    <X className="w-3 h-3" />
-                                </button>
                             </div>
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
 
@@ -389,5 +405,5 @@ NotificationDropdown.propTypes = {
     onClose: PropTypes.func.isRequired,
     onUnreadChange: PropTypes.func,
     onNotificationClick: PropTypes.func,
-    isCompanyInactive: PropTypes.bool,  // ← NEW PROP
+    isCompanyInactive: PropTypes.bool,
 };

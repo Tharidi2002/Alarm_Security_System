@@ -9,7 +9,7 @@ import { getUnreadCount } from '../services/notificationApi';
 export default function NotificationBell({ 
     username, 
     onNotificationClick,
-    isCompanyInactive = false  // ← NEW PROP
+    isCompanyInactive = false
 }) {
     const [unreadCount, setUnreadCount] = useState(0);
     const [criticalCount, setCriticalCount] = useState(0);
@@ -18,11 +18,10 @@ export default function NotificationBell({
     const dropdownRef = useRef(null);
 
     // ============================================================
-    // FETCH UNREAD COUNT - SKIP IF COMPANY INACTIVE
+    // FETCH UNREAD COUNT
     // ============================================================
 
     const fetchUnreadCount = async () => {
-        // ===== SKIP if company is inactive =====
         if (isCompanyInactive || !username) {
             setUnreadCount(0);
             setCriticalCount(0);
@@ -42,7 +41,7 @@ export default function NotificationBell({
     };
 
     // ============================================================
-    // AUTO-REFRESH EVERY 30 SECONDS - SKIP IF INACTIVE
+    // AUTO-REFRESH EVERY 15 SECONDS
     // ============================================================
 
     useEffect(() => {
@@ -51,7 +50,7 @@ export default function NotificationBell({
             if (!isCompanyInactive) {
                 fetchUnreadCount();
             }
-        }, 30000);
+        }, 15000);
         return () => clearInterval(interval);
     }, [username, isCompanyInactive]);
 
@@ -74,7 +73,6 @@ export default function NotificationBell({
     // ============================================================
 
     const toggleDropdown = () => {
-        // ===== Don't open if company is inactive =====
         if (isCompanyInactive) {
             return;
         }
@@ -100,7 +98,6 @@ export default function NotificationBell({
     // RENDER
     // ============================================================
 
-    // ===== If company inactive, show disabled bell =====
     if (isCompanyInactive) {
         return (
             <div className="relative" ref={dropdownRef}>
@@ -162,7 +159,7 @@ export default function NotificationBell({
                         onClose={() => setIsOpen(false)}
                         onUnreadChange={fetchUnreadCount}
                         onNotificationClick={handleNotificationClick}
-                        isCompanyInactive={isCompanyInactive}  // ← PASS TO DROPDOWN
+                        isCompanyInactive={isCompanyInactive}
                     />
                 </div>
             )}
@@ -173,5 +170,5 @@ export default function NotificationBell({
 NotificationBell.propTypes = {
     username: PropTypes.string.isRequired,
     onNotificationClick: PropTypes.func,
-    isCompanyInactive: PropTypes.bool,  // ← NEW PROP
+    isCompanyInactive: PropTypes.bool,
 };
