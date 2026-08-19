@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/notifications")
@@ -48,7 +49,6 @@ public class NotificationController {
         
         User user = userOpt.get();
         
-        // Check permission - users can only see their own notifications
         if (!username.equals(user.getUsername()) && !permissionService.isAdmin(username)) {
             return ResponseEntity.status(403).body("Access denied");
         }
@@ -57,15 +57,62 @@ public class NotificationController {
             user.getId(), unreadOnly, page, size
         );
         
+        // ===== FIX: Break Hibernate proxies before serialization =====
+        List<Map<String, Object>> notificationList = notifications.stream()
+            .map(n -> {
+                Map<String, Object> map = new HashMap<>();
+                map.put("id", n.getId());
+                map.put("type", n.getType());
+                map.put("title", n.getTitle());
+                map.put("message", n.getMessage());
+                map.put("severity", n.getSeverity());
+                map.put("isRead", n.getIsRead());
+                map.put("isArchived", n.getIsArchived());
+                map.put("createdAt", n.getCreatedAt());
+                map.put("readAt", n.getReadAt());
+                map.put("expiresAt", n.getExpiresAt());
+                map.put("actionBy", n.getActionBy());
+                map.put("alertId", n.getAlertId());
+                map.put("metadata", n.getMetadata());
+                
+                // Handle company - break proxy
+                if (n.getCompany() != null) {
+                    Map<String, Object> companyMap = new HashMap<>();
+                    companyMap.put("id", n.getCompany().getId());
+                    companyMap.put("companyName", n.getCompany().getCompanyName());
+                    companyMap.put("companyCode", n.getCompany().getCompanyCode());
+                    map.put("company", companyMap);
+                }
+                
+                // Handle system - break proxy
+                if (n.getSystem() != null) {
+                    Map<String, Object> systemMap = new HashMap<>();
+                    systemMap.put("id", n.getSystem().getId());
+                    systemMap.put("systemCode", n.getSystem().getSystemCode());
+                    map.put("system", systemMap);
+                }
+                
+                // Handle user - break proxy
+                if (n.getUser() != null) {
+                    Map<String, Object> userMap = new HashMap<>();
+                    userMap.put("id", n.getUser().getId());
+                    userMap.put("username", n.getUser().getUsername());
+                    map.put("user", userMap);
+                }
+                
+                return map;
+            })
+            .collect(Collectors.toList());
+        
         long unreadCount = notificationService.getUnreadCount(user.getId());
         long criticalCount = notificationService.getCriticalUnreadCount(user.getId());
         
         Map<String, Object> response = new HashMap<>();
-        response.put("notifications", notifications);
+        response.put("notifications", notificationList);
         response.put("unreadCount", unreadCount);
         response.put("criticalCount", criticalCount);
-        response.put("total", notifications.size());
-        response.put("hasMore", notifications.size() >= size);
+        response.put("total", notificationList.size());
+        response.put("hasMore", notificationList.size() >= size);
         
         return ResponseEntity.ok(response);
     }
