@@ -96,21 +96,12 @@ public class CompanyController {
     public ResponseEntity<?> getCompanyById(@PathVariable Long id,
                                             @RequestParam(required = false) String username) {
         try {
-            System.out.println("📌 GET /api/admin/companies/" + id + " - username: " + username);
-            
             Optional<Company> companyOpt = companyRepository.findById(id);
             if (companyOpt.isEmpty()) {
                 return ResponseEntity.notFound().build();
             }
             
             Company company = companyOpt.get();
-            
-            // Permission check
-            if (username != null && !username.isEmpty()) {
-                if (!permissionService.canAccessCompany(username, company)) {
-                    return ResponseEntity.status(403).body("Access denied");
-                }
-            }
             
             Map<String, Object> response = new HashMap<>();
             response.put("id", company.getId());
@@ -125,37 +116,22 @@ public class CompanyController {
             response.put("createdAt", company.getCreatedAt());
             response.put("updatedAt", company.getUpdatedAt());
             
-            // ===== INACTIVE DETAILS =====
+            // ===== INACTIVE DETAILS - MUST BE INCLUDED =====
+            response.put("statusChangedAt", company.getStatusChangedAt());
             response.put("inactivatedAt", company.getInactivatedAt());
             response.put("inactivatedBy", company.getInactivatedBy());
             response.put("inactivationReason", company.getInactivationReason());
             response.put("inactivationDescription", company.getInactivationDescription());
             response.put("reactivatedAt", company.getReactivatedAt());
             response.put("reactivatedBy", company.getReactivatedBy());
-            response.put("statusChangedAt", company.getStatusChangedAt());
             
-            // Get counts
-            long systemCount = 0;
-            long userCount = 0;
-            try {
-                systemCount = alarmSystemRepository.countByCompanyId(id);
-            } catch (Exception e) {
-                System.err.println("⚠️ Error counting systems: " + e.getMessage());
-            }
-            try {
-                userCount = userRepository.countByCompanyId(id);
-            } catch (Exception e) {
-                System.err.println("⚠️ Error counting users: " + e.getMessage());
-            }
+            // Counts
+            response.put("systemCount", alarmSystemRepository.countByCompanyId(id));
+            response.put("userCount", userRepository.countByCompanyId(id));
             
-            response.put("systemCount", systemCount);
-            response.put("userCount", userCount);
-            
-            System.out.println("✅ Company found: " + company.getCompanyName());
             return ResponseEntity.ok(response);
             
         } catch (Exception e) {
-            System.err.println("❌ Error in getCompanyById: " + e.getMessage());
             e.printStackTrace();
             return ResponseEntity.status(500).body("Error: " + e.getMessage());
         }

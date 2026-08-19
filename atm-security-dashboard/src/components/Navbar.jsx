@@ -1,8 +1,6 @@
-// src/components/Navbar.jsx
-
 import { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
-import { Shield, RefreshCw, LogOut, Settings, FileText, Power, PowerOff, Loader2, Menu, X, Wifi, WifiOff } from 'lucide-react';
+import { Shield, RefreshCw, LogOut, Settings, FileText, Power, PowerOff, Loader2, Menu, X, Wifi, WifiOff, AlertTriangle } from 'lucide-react';
 import { fetchSystems, sendSystemCommand, checkServerHealth } from '../services/api';
 import NotificationBell from './NotificationBell';
 
@@ -12,7 +10,8 @@ export default function Navbar({
     onOpenAdminPanel, 
     onRefresh, 
     onOpenReport,
-    onNotificationClick 
+    onNotificationClick,
+    isCompanyInactive = false  // ← NEW PROP
 }) {
     const [loading, setLoading] = useState(false);
     const [commandStatus, setCommandStatus] = useState('');
@@ -110,6 +109,9 @@ export default function Navbar({
         }
     };
 
+    // ===== CHECK IF CONTROLS SHOULD BE DISABLED =====
+    const isControlsDisabled = !serverOnline || isCompanyInactive;
+
     return (
         <nav className="border-b border-slate-800 bg-slate-950/50 backdrop-blur px-3 sm:px-4 md:px-6 py-3 md:py-4 sticky top-0 z-50">
             <div className="flex flex-col lg:flex-row justify-between items-center gap-3">
@@ -137,6 +139,9 @@ export default function Navbar({
                                 {user?.companyName && (
                                     <span className="text-blue-400 ml-1">• {user.companyName}</span>
                                 )}
+                                {isCompanyInactive && (
+                                    <span className="text-red-400 ml-1 font-bold animate-pulse">⚠️ INACTIVE</span>
+                                )}
                             </p>
                             {/* ===== SERVER STATUS TEXT ===== */}
                             <p className="text-[8px] sm:text-[9px] font-mono">
@@ -146,6 +151,9 @@ export default function Navbar({
                                     <span className="text-emerald-400">● Server Online</span>
                                 ) : (
                                     <span className="text-red-400 animate-pulse">● Server Offline</span>
+                                )}
+                                {isCompanyInactive && (
+                                    <span className="text-red-400 ml-2">● Company Inactive</span>
                                 )}
                             </p>
                         </div>
@@ -162,10 +170,19 @@ export default function Navbar({
                 {/* ===== RIGHT: Controls ===== */}
                 <div className={`${mobileMenuOpen ? 'flex' : 'hidden'} lg:flex flex-col lg:flex-row items-center gap-2 sm:gap-3 w-full lg:w-auto`}>
                     
+                    {/* ===== COMPANY INACTIVE BANNER (Mobile/Compact) ===== */}
+                    {isCompanyInactive && (
+                        <div className="w-full lg:w-auto flex items-center gap-1.5 px-2.5 py-1.5 bg-red-500/10 border border-red-500/30 rounded-lg text-[10px] text-red-400 font-mono">
+                            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span>Company Inactive</span>
+                        </div>
+                    )}
+                    
                     {/* ===== NOTIFICATION BELL ===== */}
                     <NotificationBell 
                         username={user?.username} 
                         onNotificationClick={onNotificationClick}
+                        isCompanyInactive={isCompanyInactive}
                     />
                     
                     {/* ===== ARM/DISARM Controls ===== */}
@@ -175,11 +192,11 @@ export default function Navbar({
                                 <select
                                     value={selectedSystem}
                                     onChange={(e) => setSelectedSystem(e.target.value)}
-                                    disabled={!serverOnline}
+                                    disabled={isControlsDisabled}
                                     className={`bg-slate-900 border rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 text-[10px] sm:text-xs font-mono text-white focus:outline-none transition-colors w-full sm:w-auto max-w-[140px] sm:max-w-[160px] ${
-                                        serverOnline 
-                                            ? 'border-slate-700 hover:border-slate-600 focus:border-red-500/50' 
-                                            : 'border-red-500/30 opacity-50 cursor-not-allowed'
+                                        isControlsDisabled
+                                            ? 'border-red-500/30 opacity-50 cursor-not-allowed'
+                                            : 'border-slate-700 hover:border-slate-600 focus:border-red-500/50'
                                     }`}
                                 >
                                     {systems.map((sys) => (
@@ -190,24 +207,26 @@ export default function Navbar({
                                 </select>
                                 <button
                                     onClick={() => sendCommand('ARM')}
-                                    disabled={loading || !selectedSystem || !serverOnline}
+                                    disabled={loading || !selectedSystem || isControlsDisabled}
                                     className={`flex items-center justify-center gap-1 px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-[10px] sm:text-xs font-mono transition-all flex-1 sm:flex-none ${
-                                        !serverOnline
+                                        isControlsDisabled
                                             ? 'bg-slate-700 text-slate-400 cursor-not-allowed opacity-50'
                                             : 'bg-emerald-600 hover:bg-emerald-500 text-white'
                                     }`}
+                                    title={isCompanyInactive ? 'Company is inactive' : ''}
                                 >
                                     {loading ? <Loader2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-spin" /> : <Power className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
                                     <span className="hidden xs:inline">ARM</span>
                                 </button>
                                 <button
                                     onClick={() => sendCommand('DISARM')}
-                                    disabled={loading || !selectedSystem || !serverOnline}
+                                    disabled={loading || !selectedSystem || isControlsDisabled}
                                     className={`flex items-center justify-center gap-1 px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-[10px] sm:text-xs font-mono transition-all flex-1 sm:flex-none ${
-                                        !serverOnline
+                                        isControlsDisabled
                                             ? 'bg-slate-700 text-slate-400 cursor-not-allowed opacity-50'
                                             : 'bg-red-600 hover:bg-red-500 text-white'
                                     }`}
+                                    title={isCompanyInactive ? 'Company is inactive' : ''}
                                 >
                                     {loading ? <Loader2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-spin" /> : <PowerOff className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
                                     <span className="hidden xs:inline">DISARM</span>
@@ -215,7 +234,7 @@ export default function Navbar({
                             </>
                         ) : (
                             <span className="text-xs text-slate-500 font-mono px-2 py-1">
-                                {serverOnline ? 'No active systems' : '⚠️ Server offline'}
+                                {isCompanyInactive ? '⚠️ Company Inactive' : (serverOnline ? 'No active systems' : '⚠️ Server offline')}
                             </span>
                         )}
                     </div>
@@ -239,18 +258,22 @@ export default function Navbar({
                         <span className="text-[10px] sm:text-xs font-mono text-slate-300 truncate max-w-[100px] sm:max-w-none">
                             {user?.username} <span className="text-slate-500 hidden xs:inline">({user?.role})</span>
                         </span>
+                        {isCompanyInactive && (
+                            <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse flex-shrink-0" />
+                        )}
                     </div>
 
                     {/* ===== Action Buttons ===== */}
                     <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 w-full lg:w-auto">
                         <button
                             onClick={onOpenReport}
-                            disabled={!serverOnline}
+                            disabled={isControlsDisabled}
                             className={`flex items-center justify-center gap-1 px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-[10px] sm:text-xs font-mono transition-all flex-1 sm:flex-none ${
-                                !serverOnline
+                                isControlsDisabled
                                     ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-50'
                                     : 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 border border-blue-500/30 hover:border-blue-500/50'
                             }`}
+                            title={isCompanyInactive ? 'Company is inactive' : ''}
                         >
                             <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                             <span className="hidden xs:inline">Reports</span>
@@ -259,12 +282,13 @@ export default function Navbar({
                         {(user?.role === 'ADMIN' || user?.role === 'USER') && (
                             <button
                                 onClick={onOpenAdminPanel}
-                                disabled={!serverOnline}
+                                disabled={isControlsDisabled}
                                 className={`flex items-center justify-center gap-1 px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-[10px] sm:text-xs font-mono transition-all flex-1 sm:flex-none ${
-                                    !serverOnline
+                                    isControlsDisabled
                                         ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-50'
                                         : 'bg-slate-800 hover:bg-red-650 hover:text-white border border-slate-700 hover:border-red-500'
                                 }`}
+                                title={isCompanyInactive ? 'Company is inactive' : ''}
                             >
                                 <Settings className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                                 <span className="hidden xs:inline">Access</span>
@@ -273,7 +297,12 @@ export default function Navbar({
 
                         <button 
                             onClick={handleRefresh}
-                            className="flex items-center justify-center gap-1 px-2 py-1.5 sm:px-3 sm:py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-[10px] sm:text-xs font-mono transition-all border border-slate-700 flex-1 sm:flex-none"
+                            disabled={isControlsDisabled}
+                            className={`flex items-center justify-center gap-1 px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-[10px] sm:text-xs font-mono transition-all border flex-1 sm:flex-none ${
+                                isControlsDisabled
+                                    ? 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed opacity-50'
+                                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                            }`}
                         >
                             <RefreshCw className={`w-3 h-3 sm:w-3.5 sm:h-3.5 ${loading ? 'animate-spin' : ''}`} />
                             <span className="hidden xs:inline">Refresh</span>
@@ -305,5 +334,6 @@ Navbar.propTypes = {
     onOpenAdminPanel: PropTypes.func.isRequired,
     onRefresh: PropTypes.func.isRequired,
     onOpenReport: PropTypes.func.isRequired,
-    onNotificationClick: PropTypes.func,  // ← NEW
+    onNotificationClick: PropTypes.func,
+    isCompanyInactive: PropTypes.bool,  
 };

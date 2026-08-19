@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { 
     X, Bell, CheckCheck, Eye, 
-    AlertCircle, ChevronRight, Loader2 
+    AlertCircle, ChevronRight, Loader2, Ban
 } from 'lucide-react';
 import { 
     getNotifications, 
@@ -17,7 +17,8 @@ export default function NotificationDropdown({
     username, 
     onClose, 
     onUnreadChange,
-    onNotificationClick 
+    onNotificationClick,
+    isCompanyInactive = false  // ← NEW PROP
 }) {
     const [notifications, setNotifications] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -27,11 +28,17 @@ export default function NotificationDropdown({
     const [hasMore, setHasMore] = useState(true);
 
     // ============================================================
-    // LOAD NOTIFICATIONS
+    // LOAD NOTIFICATIONS - SKIP IF COMPANY INACTIVE
     // ============================================================
 
     const loadNotifications = async (reset = false) => {
-        if (!username) return;
+        // ===== SKIP if company is inactive =====
+        if (isCompanyInactive || !username) {
+            setLoading(false);
+            setNotifications([]);
+            setHasMore(false);
+            return;
+        }
         
         setLoading(true);
         setError('');
@@ -57,18 +64,25 @@ export default function NotificationDropdown({
     };
 
     // ============================================================
-    // INITIAL LOAD
+    // INITIAL LOAD - SKIP IF INACTIVE
     // ============================================================
 
     useEffect(() => {
-        loadNotifications(true);
-    }, [username]);
+        if (!isCompanyInactive) {
+            loadNotifications(true);
+        } else {
+            setLoading(false);
+            setNotifications([]);
+        }
+    }, [username, isCompanyInactive]);
 
     // ============================================================
-    // MARK AS READ
+    // MARK AS READ - SKIP IF INACTIVE
     // ============================================================
 
     const handleMarkAsRead = async (id) => {
+        if (isCompanyInactive) return;
+        
         try {
             await markAsRead(id, username);
             setNotifications(prev => 
@@ -81,10 +95,12 @@ export default function NotificationDropdown({
     };
 
     // ============================================================
-    // MARK ALL AS READ
+    // MARK ALL AS READ - SKIP IF INACTIVE
     // ============================================================
 
     const handleMarkAllAsRead = async () => {
+        if (isCompanyInactive) return;
+        
         setMarkingAll(true);
         try {
             await markAllAsRead(username);
@@ -100,10 +116,12 @@ export default function NotificationDropdown({
     };
 
     // ============================================================
-    // DELETE NOTIFICATION
+    // DELETE NOTIFICATION - SKIP IF INACTIVE
     // ============================================================
 
     const handleDelete = async (id) => {
+        if (isCompanyInactive) return;
+        
         try {
             await deleteNotification(id, username);
             setNotifications(prev => prev.filter(n => n.id !== id));
@@ -114,10 +132,11 @@ export default function NotificationDropdown({
     };
 
     // ============================================================
-    // LOAD MORE
+    // LOAD MORE - SKIP IF INACTIVE
     // ============================================================
 
     const handleLoadMore = () => {
+        if (isCompanyInactive) return;
         const nextPage = page + 1;
         setPage(nextPage);
         loadNotifications(false);
@@ -160,7 +179,9 @@ export default function NotificationDropdown({
             'USER_DELETED': '❌',
             'HEARTBEAT_LOST': '📡',
             'HEARTBEAT_RESTORED': '📶',
-            'ZONE_UPDATED': '✏️'
+            'ZONE_UPDATED': '✏️',
+            'COMPANY_DEACTIVATED': '🚫',
+            'COMPANY_REACTIVATED': '✅'
         };
         return icons[type] || '📌';
     };
@@ -183,6 +204,28 @@ export default function NotificationDropdown({
     // ============================================================
 
     const unreadCount = notifications.filter(n => !n.isRead).length;
+
+    // ===== If company inactive, show disabled message =====
+    if (isCompanyInactive) {
+        return (
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl shadow-black/50 overflow-hidden">
+                <div className="flex justify-between items-center p-4 border-b border-slate-800 bg-slate-950/50">
+                    <div className="flex items-center gap-2">
+                        <Bell className="w-4 h-4 text-slate-500" />
+                        <span className="text-sm font-bold text-slate-400">Notifications</span>
+                    </div>
+                    <button onClick={onClose} className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-white">
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+                <div className="p-8 text-center">
+                    <Ban className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+                    <p className="text-slate-400 font-mono text-sm">Notifications Disabled</p>
+                    <p className="text-xs text-slate-500 mt-1">Company is inactive</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl shadow-black/50 overflow-hidden max-h-[500px] flex flex-col">
@@ -255,7 +298,7 @@ export default function NotificationDropdown({
                                     : 'bg-slate-950 border-slate-700 hover:border-slate-600'
                             }`}
                             onClick={() => {
-                                if (!notification.isRead) {
+                                if (!notification.isRead && !isCompanyInactive) {
                                     handleMarkAsRead(notification.id);
                                 }
                                 if (onNotificationClick) {
@@ -299,10 +342,15 @@ export default function NotificationDropdown({
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        handleDelete(notification.id);
+                                        if (!isCompanyInactive) {
+                                            handleDelete(notification.id);
+                                        }
                                     }}
-                                    className="p-1 hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-red-400 flex-shrink-0"
+                                    className={`p-1 hover:bg-slate-800 rounded-lg transition-colors flex-shrink-0 ${
+                                        isCompanyInactive ? 'opacity-40 cursor-not-allowed' : 'text-slate-500 hover:text-red-400'
+                                    }`}
                                     title="Delete"
+                                    disabled={isCompanyInactive}
                                 >
                                     <X className="w-3 h-3" />
                                 </button>
@@ -319,10 +367,14 @@ export default function NotificationDropdown({
                         if (onNotificationClick) {
                             onNotificationClick();
                         }
-                        // Navigate to full notifications page
                         window.location.href = '/notifications';
                     }}
-                    className="w-full py-2 text-center text-xs font-mono text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded-lg transition-colors flex items-center justify-center gap-1"
+                    disabled={isCompanyInactive}
+                    className={`w-full py-2 text-center text-xs font-mono rounded-lg transition-colors flex items-center justify-center gap-1 ${
+                        isCompanyInactive 
+                            ? 'text-slate-500 cursor-not-allowed opacity-50' 
+                            : 'text-blue-400 hover:text-blue-300 hover:bg-blue-500/10'
+                    }`}
                 >
                     View All
                     <ChevronRight className="w-3 h-3" />
@@ -337,4 +389,5 @@ NotificationDropdown.propTypes = {
     onClose: PropTypes.func.isRequired,
     onUnreadChange: PropTypes.func,
     onNotificationClick: PropTypes.func,
+    isCompanyInactive: PropTypes.bool,  // ← NEW PROP
 };

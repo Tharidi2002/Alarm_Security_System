@@ -6,7 +6,11 @@ import { Bell, BellDot, BellRing } from 'lucide-react';
 import NotificationDropdown from './NotificationDropdown';
 import { getUnreadCount } from '../services/notificationApi';
 
-export default function NotificationBell({ username, onNotificationClick }) {
+export default function NotificationBell({ 
+    username, 
+    onNotificationClick,
+    isCompanyInactive = false  // ← NEW PROP
+}) {
     const [unreadCount, setUnreadCount] = useState(0);
     const [criticalCount, setCriticalCount] = useState(0);
     const [isOpen, setIsOpen] = useState(false);
@@ -14,11 +18,17 @@ export default function NotificationBell({ username, onNotificationClick }) {
     const dropdownRef = useRef(null);
 
     // ============================================================
-    // FETCH UNREAD COUNT
+    // FETCH UNREAD COUNT - SKIP IF COMPANY INACTIVE
     // ============================================================
 
     const fetchUnreadCount = async () => {
-        if (!username) return;
+        // ===== SKIP if company is inactive =====
+        if (isCompanyInactive || !username) {
+            setUnreadCount(0);
+            setCriticalCount(0);
+            return;
+        }
+        
         setLoading(true);
         try {
             const data = await getUnreadCount(username);
@@ -32,14 +42,18 @@ export default function NotificationBell({ username, onNotificationClick }) {
     };
 
     // ============================================================
-    // AUTO-REFRESH EVERY 30 SECONDS
+    // AUTO-REFRESH EVERY 30 SECONDS - SKIP IF INACTIVE
     // ============================================================
 
     useEffect(() => {
         fetchUnreadCount();
-        const interval = setInterval(fetchUnreadCount, 30000);
+        const interval = setInterval(() => {
+            if (!isCompanyInactive) {
+                fetchUnreadCount();
+            }
+        }, 30000);
         return () => clearInterval(interval);
-    }, [username]);
+    }, [username, isCompanyInactive]);
 
     // ============================================================
     // CLOSE DROPDOWN ON CLICK OUTSIDE
@@ -60,6 +74,11 @@ export default function NotificationBell({ username, onNotificationClick }) {
     // ============================================================
 
     const toggleDropdown = () => {
+        // ===== Don't open if company is inactive =====
+        if (isCompanyInactive) {
+            return;
+        }
+        
         if (!isOpen) {
             fetchUnreadCount();
         }
@@ -80,6 +99,26 @@ export default function NotificationBell({ username, onNotificationClick }) {
     // ============================================================
     // RENDER
     // ============================================================
+
+    // ===== If company inactive, show disabled bell =====
+    if (isCompanyInactive) {
+        return (
+            <div className="relative" ref={dropdownRef}>
+                <button
+                    onClick={toggleDropdown}
+                    className="relative p-2 rounded-lg opacity-40 cursor-not-allowed"
+                    aria-label="Notifications disabled"
+                    title="Company is inactive. Notifications disabled."
+                    disabled
+                >
+                    <Bell className="w-5 h-5 text-slate-500" />
+                    <span className="absolute -top-0.5 -right-0.5 text-[8px] font-bold rounded-full min-w-[16px] h-[16px] flex items-center justify-center px-1 bg-slate-600 text-slate-300">
+                        !
+                    </span>
+                </button>
+            </div>
+        );
+    }
 
     const getBellIcon = () => {
         if (criticalCount > 0) {
@@ -116,13 +155,14 @@ export default function NotificationBell({ username, onNotificationClick }) {
                 )}
             </button>
 
-            {isOpen && (
+            {isOpen && !isCompanyInactive && (
                 <div className="absolute right-0 mt-2 w-[400px] max-w-[calc(100vw-20px)] z-50">
                     <NotificationDropdown
                         username={username}
                         onClose={() => setIsOpen(false)}
                         onUnreadChange={fetchUnreadCount}
                         onNotificationClick={handleNotificationClick}
+                        isCompanyInactive={isCompanyInactive}  // ← PASS TO DROPDOWN
                     />
                 </div>
             )}
@@ -133,4 +173,5 @@ export default function NotificationBell({ username, onNotificationClick }) {
 NotificationBell.propTypes = {
     username: PropTypes.string.isRequired,
     onNotificationClick: PropTypes.func,
+    isCompanyInactive: PropTypes.bool,  // ← NEW PROP
 };
