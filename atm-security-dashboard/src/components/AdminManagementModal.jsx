@@ -4,7 +4,7 @@ import PropTypes from 'prop-types';
 import { 
   X, Shield, Key, ToggleRight, ToggleLeft, 
   Trash2, AlertCircle, CheckCircle, Lock,
-  RefreshCw, Eye, EyeOff
+  Eye, EyeOff, Info
 } from 'lucide-react';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
@@ -28,6 +28,10 @@ export default function AdminManagementModal({
 
   if (!isOpen) return null;
 
+  // ============================================================
+  // TOGGLE ADMIN STATUS
+  // ============================================================
+  
   const handleToggleStatus = async (adminId, adminUsername, currentStatus) => {
     if (!window.confirm(`Are you sure you want to ${currentStatus ? 'deactivate' : 'activate'} admin "${adminUsername}"?`)) return;
     
@@ -56,6 +60,10 @@ export default function AdminManagementModal({
     }
   };
 
+  // ============================================================
+  // DELETE ADMIN
+  // ============================================================
+  
   const handleDeleteAdmin = async (adminId, adminUsername) => {
     if (!window.confirm(`⚠️ Are you sure you want to PERMANENTLY delete admin "${adminUsername}"?\n\nThis action CANNOT be undone!`)) return;
     
@@ -84,6 +92,10 @@ export default function AdminManagementModal({
     }
   };
 
+  // ============================================================
+  // RESET ADMIN PASSWORD
+  // ============================================================
+  
   const handleResetPasswordSubmit = async (e) => {
     e.preventDefault();
     
@@ -138,22 +150,31 @@ export default function AdminManagementModal({
     setSuccess('');
   };
 
-  // Filter out current user and FORM Admins from manageable list
+  // ============================================================
+  // FILTER ADMINS
+  // ============================================================
+  
+  // Current user (always shown)
+  const currentUser = admins.find(a => a.username === currentUsername);
+  
+  // Manageable admins (ADMIN_PANEL)
   const manageableAdmins = admins.filter(a => {
-    // Exclude current user
     if (a.username === currentUsername) return false;
-    // Only ADMIN_PANEL admins can be managed by Super Admin
     if (a.registrationMethod !== 'ADMIN_PANEL') return false;
     return true;
   });
 
-  // Show protected FORM Admins (cannot be managed)
+  // Protected admins (FORM - cannot be managed)
   const protectedAdmins = admins.filter(a => {
     if (a.username === currentUsername) return false;
     if (a.registrationMethod === 'FORM') return true;
     return false;
   });
 
+  // ============================================================
+  // RENDER
+  // ============================================================
+  
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
       <div className="bg-slate-900 border border-purple-500/30 rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl shadow-purple-500/10">
@@ -203,7 +224,31 @@ export default function AdminManagementModal({
             </p>
           </div>
 
-          {/* Manageable Admins (ADMIN_PANEL) */}
+          {/* ===== CURRENT USER ===== */}
+          {currentUser && (
+            <>
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <span>👤 Current User</span>
+              </h3>
+              <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-3 mb-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-mono font-bold text-white">{currentUser.username}</span>
+                    <span className={`ml-2 text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                      currentUser.registrationMethod === 'FORM'
+                        ? 'bg-purple-500/20 text-purple-400 border-purple-500/30'
+                        : 'bg-slate-600/20 text-slate-400 border-slate-600/30'
+                    }`}>
+                      {currentUser.registrationMethod === 'FORM' ? '🔑 Super Admin' : '🛠️ Ops Admin'}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-emerald-400">🟢 You</span>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ===== MANAGEABLE ADMINS (ADMIN_PANEL) ===== */}
           {manageableAdmins.length > 0 && (
             <>
               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -236,6 +281,9 @@ export default function AdminManagementModal({
                                 : 'bg-red-500/10 text-red-400 border-red-500/20'
                             }`}>
                               {isAdminActive ? '🟢 Active' : '🔴 Inactive'}
+                            </span>
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-600/20 text-slate-400 border border-slate-600/30">
+                              🛠️ Ops Admin
                             </span>
                           </div>
                           <div className="text-[10px] text-slate-500 font-mono mt-0.5 flex items-center gap-3 flex-wrap">
@@ -288,7 +336,7 @@ export default function AdminManagementModal({
             </>
           )}
 
-          {/* Protected Admins (FORM - Cannot be managed) */}
+          {/* ===== PROTECTED ADMINS (FORM) ===== */}
           {protectedAdmins.length > 0 && (
             <>
               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -317,6 +365,11 @@ export default function AdminManagementModal({
                           }`}>
                             {admin.isActive !== false ? '🟢 Active' : '🔴 Inactive'}
                           </span>
+                          {admin.isLastSuperAdmin && (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+                              ⭐ Last Super Admin
+                            </span>
+                          )}
                         </div>
                         <div className="text-[10px] text-slate-500 font-mono mt-0.5 flex items-center gap-3 flex-wrap">
                           <span>ID: {admin.id}</span>
@@ -325,10 +378,14 @@ export default function AdminManagementModal({
                       </div>
 
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        <span className="px-3 py-1.5 bg-slate-800 text-slate-500 rounded-lg text-[10px] font-mono flex items-center gap-1.5 border border-slate-700 cursor-not-allowed" title="Super Admins cannot be managed">
+                        <span className="px-3 py-1.5 bg-slate-800 text-slate-500 rounded-lg text-[10px] font-mono flex items-center gap-1.5 border border-slate-700 cursor-not-allowed" 
+                              title="Super Admins cannot be managed">
                           <Lock className="w-3.5 h-3.5" />
                           Protected
                         </span>
+                        {admin.isLastSuperAdmin && (
+                          <span className="text-[10px] text-yellow-400 font-mono">⚠️ Cannot delete last Super Admin</span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -360,7 +417,7 @@ export default function AdminManagementModal({
         </div>
       </div>
 
-      {/* Reset Password Modal */}
+      {/* ===== RESET PASSWORD MODAL ===== */}
       {showResetPassword && selectedAdmin && (
         <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-slate-900 border border-yellow-500/30 rounded-2xl max-w-md w-full shadow-2xl shadow-yellow-500/10">

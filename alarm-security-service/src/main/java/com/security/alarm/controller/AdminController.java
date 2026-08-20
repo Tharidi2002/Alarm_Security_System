@@ -38,35 +38,31 @@ public class AdminController {
     private final CompanyRepository companyRepository;
     private final PasswordEncoder passwordEncoder;
     private final AlarmZoneRepository alarmZoneRepository;
-    private final RegistrationAuditLogRepository auditLogRepository;  // ← මෙය තිබුණා
     private final PermissionService permissionService;
     private final AlertLogRepository alertLogRepository;
-
-    // ============================================================
-    // NEW: Add registrationAuditLogRepository for admin management
-    // ============================================================
     private final RegistrationAuditLogRepository registrationAuditLogRepository;
 
+    // ============================================================
+    // CONSTRUCTOR
+    // ============================================================
     public AdminController(UserRepository userRepository,
-                        UserSystemRepository userSystemRepository,
-                        AlarmSystemRepository alarmSystemRepository,
-                        CompanyRepository companyRepository,
-                        PasswordEncoder passwordEncoder,
-                        AlarmZoneRepository alarmZoneRepository,
-                        RegistrationAuditLogRepository auditLogRepository,
-                        PermissionService permissionService,
-                        AlertLogRepository alertLogRepository,
-                        RegistrationAuditLogRepository registrationAuditLogRepository) {  // ← Add to constructor
+                           UserSystemRepository userSystemRepository,
+                           AlarmSystemRepository alarmSystemRepository,
+                           CompanyRepository companyRepository,
+                           PasswordEncoder passwordEncoder,
+                           AlarmZoneRepository alarmZoneRepository,
+                           PermissionService permissionService,
+                           AlertLogRepository alertLogRepository,
+                           RegistrationAuditLogRepository registrationAuditLogRepository) {
         this.userRepository = userRepository;
         this.userSystemRepository = userSystemRepository;
         this.alarmSystemRepository = alarmSystemRepository;
         this.companyRepository = companyRepository;
         this.passwordEncoder = passwordEncoder;
         this.alarmZoneRepository = alarmZoneRepository;
-        this.auditLogRepository = auditLogRepository;
         this.permissionService = permissionService;
         this.alertLogRepository = alertLogRepository;
-        this.registrationAuditLogRepository = registrationAuditLogRepository;  // ← Initialize
+        this.registrationAuditLogRepository = registrationAuditLogRepository;
     }
 
     // ============================================================
@@ -85,6 +81,9 @@ public class AdminController {
         response.put("id", user.getId());
         response.put("username", user.getUsername());
         response.put("role", user.getRole());
+        response.put("registrationMethod", user.getRegistrationMethod());
+        response.put("isSuperAdmin", user.getIsSuperAdmin() != null && user.getIsSuperAdmin());
+        response.put("isActive", user.getIsActive() != null ? user.getIsActive() : true);
         
         if (user.getCompany() != null) {
             response.put("companyId", user.getCompany().getId());
@@ -141,8 +140,15 @@ public class AdminController {
             map.put("username", u.getUsername());
             map.put("role", u.getRole());
             map.put("isFirstAdmin", u.getId().equals(firstAdminId));
-            map.put("registrationMethod", permissionService.getRegistrationMethod(u.getUsername()));
+            
+            // Get registration method
+            String regMethod = u.getRegistrationMethod();
+            if (regMethod == null || regMethod.isEmpty()) {
+                regMethod = permissionService.getRegistrationMethod(u.getUsername());
+            }
+            map.put("registrationMethod", regMethod);
             map.put("isActive", u.getIsActive() != null ? u.getIsActive() : true);
+            map.put("isSuperAdmin", u.getIsSuperAdmin() != null && u.getIsSuperAdmin());
             
             if (u.getCompany() != null) {
                 map.put("companyId", u.getCompany().getId());
@@ -165,14 +171,21 @@ public class AdminController {
         }).collect(Collectors.toList());
     }
 
+    // ============================================================
+    // CREATE USER - WITH ADMIN RESTRICTIONS
+    // ============================================================
+    
     @PostMapping("/users")
-    public ResponseEntity<?> createUser(@RequestBody Map<String, Object> request, HttpServletRequest httpRequest) {
+    public ResponseEntity<?> createUser(@RequestBody Map<String, Object> request,
+                                        @RequestParam(required = false) String adminUsername,
+                                        HttpServletRequest httpRequest) {
         String username = (String) request.get("username");
         String password = (String) request.get("password");
         String role = (String) request.get("role");
         Long companyId = request.get("companyId") != null ? 
             Long.valueOf(request.get("companyId").toString()) : null;
         
+        // Basic validation
         if (username == null || password == null || role == null) {
             return ResponseEntity.badRequest().body("Username, password and role are required");
         }
@@ -185,6 +198,23 @@ public class AdminController {
             return ResponseEntity.badRequest().body("Company is required for USER role");
         }
         
+        // ============================================================
+        // CRITICAL: ADMIN CREATION RESTRICTION
+        // Only FORM Admins (Super Admins) can create other ADMINs
+        // ============================================================
+        if ("ADMIN".equalsIgnoreCase(role)) {
+            if (adminUsername == null || adminUsername.isEmpty()) {
+                return ResponseEntity.status(403).body("Only admins can create admin accounts");
+            }
+            
+            // Check if current user is FORM Admin (Super Admin)
+            if (!permissionService.isFormAdmin(adminUsername)) {
+                return ResponseEntity.status(403).body(
+                    "Access denied: Only Super Admins (FORM Admins) can create other admin accounts"
+                );
+            }
+        }
+        
         Company company = null;
         if (companyId != null && companyId > 0) {
             Optional<Company> companyOpt = companyRepository.findById(companyId);
@@ -194,50 +224,56 @@ public class AdminController {
             company = companyOpt.get();
         }
         
+        // Create user
         User newUser = new User();
         newUser.setUsername(username);
         newUser.setPassword(passwordEncoder.encode(password));
         newUser.setRole(role.toUpperCase());
         newUser.setCompany(company);
+        newUser.setIsActive(true);
+        
+        // ============================================================
+        // Set registration method based on who created the user
+        // ============================================================
+        if ("ADMIN".equalsIgnoreCase(role)) {
+            // Only FORM Admins can create admins
+            // So registration_method = ADMIN_PANEL (created by admin)
+            newUser.setRegistrationMethod("ADMIN_PANEL");
+            newUser.setIsSuperAdmin(false);
+        } else {
+            // USER created by any admin -> ADMIN_PANEL
+            newUser.setRegistrationMethod("ADMIN_PANEL");
+            newUser.setIsSuperAdmin(false);
+        }
         
         User saved = userRepository.save(newUser);
         
         // ============================================================
-        // AUTO-ASSIGN: All systems from user's company
+        // AUTO-ASSIGN: All systems from user's company (for USER role)
         // ============================================================
         if ("USER".equalsIgnoreCase(role) && company != null && company.getId() != null) {
             List<AlarmSystem> companySystems = alarmSystemRepository.findActiveByCompanyId(company.getId());
-            int assignedCount = 0;
-            
             for (AlarmSystem system : companySystems) {
                 UserSystem us = new UserSystem();
                 us.setUserId(saved.getId());
                 us.setSystemId(system.getId());
                 userSystemRepository.save(us);
-                assignedCount++;
             }
-            
-            System.out.println("✅ Auto-assigned " + assignedCount + 
-                               " systems to user " + username + 
-                               " from company " + company.getCompanyName());
         }
         
+        // ============================================================
+        // AUDIT LOG
+        // ============================================================
         String clientIp = getClientIp(httpRequest);
         RegistrationAuditLog log = new RegistrationAuditLog();
         log.setUsername(username);
         log.setRole(role);
-        log.setRegisteredBy("ADMIN:" + (httpRequest.getParameter("adminUsername") != null ? 
-            httpRequest.getParameter("adminUsername") : "admin"));
+        log.setRegisteredBy(adminUsername != null ? adminUsername : "SYSTEM");
         log.setRegisteredFromIp(clientIp);
         log.setMethod("ADMIN_PANEL");
-        
-        int systemCount = 0;
-        if (company != null && company.getId() != null) {
-            systemCount = alarmSystemRepository.findActiveByCompanyId(company.getId()).size();
-        }
-        log.setNotes("User created by admin with company: " + (company != null ? company.getCompanyName() : "None") +
-                     (systemCount > 0 ? " - Auto-assigned " + systemCount + " systems" : ""));
-        auditLogRepository.save(log);
+        log.setNotes("User created via Admin Panel by: " + (adminUsername != null ? adminUsername : "SYSTEM") +
+                     (company != null ? " | Company: " + company.getCompanyName() : ""));
+        registrationAuditLogRepository.save(log);
         
         return ResponseEntity.ok(saved);
     }
@@ -318,9 +354,6 @@ public class AdminController {
         return "ALARM-Z8B-01";
     }
 
-    // ============================================================
-    // NEW: Get Next System Code (Global)
-    // ============================================================
     @GetMapping("/systems/next-code")
     public ResponseEntity<?> getNextSystemCode() {
         try {
@@ -417,7 +450,7 @@ public class AdminController {
             }
         }
 
-        // Generate unique system code (with retry)
+        // Generate unique system code
         String newSystemCode = generateNextSystemCode();
         int counter = 0;
         while (alarmSystemRepository.findBySystemCode(newSystemCode).isPresent() && counter < 100) {
@@ -456,9 +489,7 @@ public class AdminController {
         AlarmSystem saved = alarmSystemRepository.save(newSystem);
         createDefaultZones(saved);
         
-        // ============================================================
-        // AUTO-ASSIGN: System to all users in the company
-        // ============================================================
+        // Auto-assign system to all users in company
         if (company != null && company.getId() != null) {
             List<User> companyUsers = userRepository.findByCompanyId(company.getId());
             int assignedCount = 0;
@@ -547,14 +578,11 @@ public class AdminController {
 
         AlarmSystem saved = alarmSystemRepository.save(system);
         
-        // ============================================================
         // If company changed, update user-system mappings
-        // ============================================================
         if (!java.util.Objects.equals(newCompanyId, oldCompanyId)) {
             System.out.println("🔄 System " + saved.getSystemCode() + " company changed from " + 
                                oldCompanyId + " to " + newCompanyId);
             
-            // Remove from old company users
             if (oldCompanyId != null) {
                 List<User> oldCompanyUsers = userRepository.findByCompanyId(oldCompanyId);
                 for (User user : oldCompanyUsers) {
@@ -572,7 +600,6 @@ public class AdminController {
                 }
             }
             
-            // Assign to new company users
             if (newCompanyId != null) {
                 List<User> newCompanyUsers = userRepository.findByCompanyId(newCompanyId);
                 for (User user : newCompanyUsers) {
@@ -714,12 +741,12 @@ public class AdminController {
     }
 
     // ============================================================
-    // 🆕 GET DELETED SYSTEMS - ADMIN ONLY
+    // DELETED SYSTEMS - ADMIN ONLY
     // ============================================================
+    
     @GetMapping("/systems/deleted")
     public ResponseEntity<?> getDeletedSystems(@RequestParam(required = false) String username) {
         try {
-            // Only Admin can view deleted systems
             if (username == null || username.isEmpty() || !permissionService.isAdmin(username)) {
                 return ResponseEntity.status(403).body("Access denied: Only Admin can view deleted systems");
             }
@@ -733,14 +760,10 @@ public class AdminController {
         }
     }
 
-    // ============================================================
-    // 🆕 PERMANENTLY DELETE SYSTEM - ADMIN ONLY
-    // ============================================================
     @DeleteMapping("/systems/{id}/permanent")
     public ResponseEntity<?> permanentDeleteSystem(@PathVariable Long id,
                                                    @RequestParam(required = false) String username) {
         try {
-            // Only Admin can permanently delete
             if (username == null || username.isEmpty() || !permissionService.isAdmin(username)) {
                 return ResponseEntity.status(403).body("Access denied: Only Admin can permanently delete systems");
             }
@@ -752,19 +775,13 @@ public class AdminController {
             
             AlarmSystem system = systemOpt.get();
             
-            // Check if system is already deleted (soft delete)
             if (!Boolean.TRUE.equals(system.getDeleted())) {
                 return ResponseEntity.badRequest().body("System is not marked as deleted. Use soft delete first.");
             }
             
-            // Delete related data
             alarmZoneRepository.deleteBySystemId(id);
             alertLogRepository.deleteByAlarmSystemId(id);
-            
-            // Delete user-system mappings
             userSystemRepository.deleteBySystemId(id);
-            
-            // Finally, delete the system
             alarmSystemRepository.deleteById(id);
             
             System.out.println("✅ System " + system.getSystemCode() + " permanently deleted by " + username);
@@ -777,14 +794,10 @@ public class AdminController {
         }
     }
 
-    // ============================================================
-    // 🆕 GET DELETED SYSTEMS BY COMPANY (For future use)
-    // ============================================================
     @GetMapping("/systems/deleted/company/{companyId}")
     public ResponseEntity<?> getDeletedSystemsByCompany(@PathVariable Long companyId,
                                                         @RequestParam(required = false) String username) {
         try {
-            // Only Admin can view deleted systems
             if (username == null || username.isEmpty() || !permissionService.isAdmin(username)) {
                 return ResponseEntity.status(403).body("Access denied");
             }
@@ -799,7 +812,7 @@ public class AdminController {
     }
 
     // ============================================================
-    // 🆕 ADMIN MANAGEMENT ENDPOINTS
+    // ADMIN MANAGEMENT ENDPOINTS (UPDATED)
     // ============================================================
 
     /**
@@ -822,7 +835,10 @@ public class AdminController {
                 response.put("canToggleAdminStatus", false);
                 response.put("canResetAdminPassword", false);
                 response.put("isSuperAdmin", false);
+                response.put("registrationMethod", "USER");
                 response.put("adminType", "USER");
+                response.put("admins", new ArrayList<>());
+                response.put("formAdminCount", 0);
                 return ResponseEntity.ok(response);
             }
             
@@ -842,36 +858,48 @@ public class AdminController {
             response.put("canResetAdminPassword", true); // Can always reset own password
             
             // Get all admins with their registration info
-            List<User> admins = userRepository.findAll().stream()
+            List<User> allUsers = userRepository.findAll();
+            List<User> admins = allUsers.stream()
                 .filter(u -> "ADMIN".equalsIgnoreCase(u.getRole()))
                 .collect(Collectors.toList());
             
             List<Map<String, Object>> adminList = new ArrayList<>();
+            long formAdminCount = 0;
+            
             for (User admin : admins) {
                 Map<String, Object> adminInfo = new HashMap<>();
                 adminInfo.put("id", admin.getId());
                 adminInfo.put("username", admin.getUsername());
                 adminInfo.put("isActive", admin.getIsActive() != null ? admin.getIsActive() : true);
                 
-                // Get registration method from User entity (faster, no audit log query)
+                // Get registration method from User entity (faster)
                 String regMethod = admin.getRegistrationMethod();
                 if (regMethod == null || regMethod.isEmpty()) {
-                    // Fallback: check audit log
+                    // Fallback: check via PermissionService
                     regMethod = permissionService.getRegistrationMethod(admin.getUsername());
                 }
                 
                 adminInfo.put("registrationMethod", regMethod);
-                adminInfo.put("isSuperAdmin", "FORM".equals(regMethod));
+                
+                boolean isSuperAdmin = "FORM".equals(regMethod) && "ADMIN".equalsIgnoreCase(admin.getRole());
+                adminInfo.put("isSuperAdmin", isSuperAdmin);
+                
+                if (isSuperAdmin) {
+                    formAdminCount++;
+                }
+                
+                // Check permissions for this admin
                 adminInfo.put("canBeManaged", permissionService.canManageAdmin(username, admin.getUsername()));
                 adminInfo.put("canBeDeleted", permissionService.canDeleteAdmin(username, admin.getUsername()));
                 adminInfo.put("canBeToggled", permissionService.canToggleAdminStatus(username, admin.getUsername()));
-                adminInfo.put("isLastSuperAdmin", 
-                    "FORM".equals(regMethod) && 
-                    registrationAuditLogRepository.countFormAdmins() <= 1
-                );
+                adminInfo.put("canBeReset", permissionService.canResetAdminPassword(username, admin.getUsername()));
+                adminInfo.put("isLastSuperAdmin", isSuperAdmin && formAdminCount <= 1);
+                adminInfo.put("isSelf", admin.getUsername().equals(username));
+                
                 adminList.add(adminInfo);
             }
             response.put("admins", adminList);
+            response.put("formAdminCount", formAdminCount);
             
             return ResponseEntity.ok(response);
             
@@ -904,7 +932,7 @@ public class AdminController {
             }
             
             // Check permission
-            if (!permissionService.canManageAdmin(currentUsername, target.getUsername())) {
+            if (!permissionService.canResetAdminPassword(currentUsername, target.getUsername())) {
                 return ResponseEntity.status(403).body("Access denied: You cannot manage this admin");
             }
             
@@ -959,6 +987,16 @@ public class AdminController {
                 return ResponseEntity.badRequest().body("You cannot deactivate yourself");
             }
             
+            // Check if trying to deactivate last FORM Admin
+            if (permissionService.isFormAdmin(target.getUsername()) && target.getIsActive() != false) {
+                long formAdminCount = permissionService.countFormAdmins();
+                if (formAdminCount <= 1) {
+                    return ResponseEntity.badRequest().body(
+                        "Cannot deactivate the last Super Admin. System needs at least one active Super Admin."
+                    );
+                }
+            }
+            
             // Toggle status
             boolean newStatus = !(target.getIsActive() != null ? target.getIsActive() : true);
             target.setIsActive(newStatus);
@@ -1006,6 +1044,16 @@ public class AdminController {
             // Check if trying to delete self
             if (currentUsername.equals(target.getUsername())) {
                 return ResponseEntity.badRequest().body("You cannot delete yourself");
+            }
+            
+            // Check if trying to delete last FORM Admin
+            if (permissionService.isFormAdmin(target.getUsername())) {
+                long formAdminCount = permissionService.countFormAdmins();
+                if (formAdminCount <= 1) {
+                    return ResponseEntity.badRequest().body(
+                        "Cannot delete the last Super Admin. System needs at least one Super Admin."
+                    );
+                }
             }
             
             // Delete user

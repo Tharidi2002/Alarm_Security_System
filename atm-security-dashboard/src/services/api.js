@@ -105,62 +105,49 @@ export const getPendingCount = async (username) => {
 // USERS - WITH COMPANY
 
 export const fetchUsers = async (companyId, username) => {
-  let url = `${API_BASE_URL}/admin/users`;
-  const params = new URLSearchParams();
-  if (companyId) params.append('companyId', companyId);
-  if (username) params.append('username', username);
-  if (params.toString()) url += `?${params.toString()}`;
-  
-  const response = await fetch(url);
-  if (!response.ok) throw new Error('Failed to fetch users');
-  return await response.json();
-};
-
-export const createUser = async (userData) => {
-  const response = await fetch(`${API_BASE_URL}/admin/users`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(userData),
-  });
-  if (!response.ok) {
-    const errorMsg = await response.text();
-    throw new Error(errorMsg || 'Failed to create user');
-  }
-  return await response.json();
+    let url = `${API_BASE_URL}/admin/users`;
+    const params = new URLSearchParams();
+    if (companyId) params.append('companyId', companyId);
+    if (username) params.append('username', username);
+    if (params.toString()) url += `?${params.toString()}`;
+    
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Failed to fetch users');
+    return await response.json();
 };
 
 export const deleteUser = async (userId) => {
-  const response = await fetch(`${API_BASE_URL}/admin/users/${userId}`, {
-    method: 'DELETE',
-  });
-  if (!response.ok) {
-    const errorMsg = await response.text();
-    throw new Error(errorMsg || 'Failed to delete user');
-  }
-  return true;
+    const response = await fetch(`${API_BASE_URL}/admin/users/${userId}`, {
+        method: 'DELETE',
+    });
+    if (!response.ok) {
+        const errorMsg = await response.text();
+        throw new Error(errorMsg || 'Failed to delete user');
+    }
+    return true;
 };
 
 export const resetUserPassword = async (userId, newPassword) => {
-  const response = await fetch(`${API_BASE_URL}/admin/users/${userId}/reset-password`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ newPassword }),
-  });
-  if (!response.ok) {
-    const errorMsg = await response.text();
-    throw new Error(errorMsg || 'Failed to reset password');
-  }
-  return await response.json();
+    const response = await fetch(`${API_BASE_URL}/admin/users/${userId}/reset-password`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPassword }),
+    });
+    if (!response.ok) {
+        const errorMsg = await response.text();
+        throw new Error(errorMsg || 'Failed to reset password');
+    }
+    return await response.json();
 };
 
 export const assignSystems = async (userId, systemIds) => {
-  const response = await fetch(`${API_BASE_URL}/admin/users/${userId}/assign`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ systemIds }),
-  });
-  if (!response.ok) throw new Error('Failed to assign systems');
-  return true;
+    const response = await fetch(`${API_BASE_URL}/admin/users/${userId}/assign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ systemIds }),
+    });
+    if (!response.ok) throw new Error('Failed to assign systems');
+    return true;
 };
 
 
@@ -695,6 +682,36 @@ export const reactivateCompany = async (companyId, note, username) => {
     if (!response.ok) {
         const error = await response.text();
         throw new Error(error || 'Failed to reactivate company');
+    }
+    return await response.json();
+};
+
+
+// ============================================================
+// CREATE USER - WITH adminUsername PARAMETER
+// ============================================================
+
+export const createUser = async (userData, adminUsername) => {
+    let url = `${API_BASE_URL}/admin/users`;
+    
+    // Add adminUsername as query parameter (required for ADMIN role creation)
+    if (adminUsername) {
+        url += `?adminUsername=${encodeURIComponent(adminUsername)}`;
+    }
+    
+    console.log('📌 Creating user with URL:', url);
+    console.log('📌 User data:', userData);
+    
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userData),
+    });
+    
+    if (!response.ok) {
+        const errorMsg = await response.text();
+        console.error('❌ Create user error:', errorMsg);
+        throw new Error(errorMsg || 'Failed to create user');
     }
     return await response.json();
 };

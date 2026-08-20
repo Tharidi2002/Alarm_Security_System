@@ -199,21 +199,21 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
     }
   }, [isOpen, activeTab, fetchLatestSystemCode]);
 
-  // Load admin permissions when panel opens
+  // Load admin permissions
   const loadAdminPermissions = async () => {
-    if (!user?.username) return;
-    try {
-      const response = await fetch(`${API_BASE_URL}/admin/admin-permissions?username=${encodeURIComponent(user.username)}`);
-      if (response.ok) {
-        const data = await response.json();
-        setAdminPermissions(data);
-        console.log('Admin Permissions:', data);
-      } else {
-        console.error('Failed to load admin permissions:', await response.text());
+      if (!user?.username) return;
+      try {
+          const response = await fetch(`${API_BASE_URL}/admin/admin-permissions?username=${encodeURIComponent(user.username)}`);
+          if (response.ok) {
+              const data = await response.json();
+              setAdminPermissions(data);
+              console.log('Admin Permissions:', data);
+          } else {
+              console.error('Failed to load admin permissions:', await response.text());
+          }
+      } catch (error) {
+          console.error('Failed to load admin permissions:', error);
       }
-    } catch (error) {
-      console.error('Failed to load admin permissions:', error);
-    }
   };
 
   useEffect(() => {
@@ -231,35 +231,42 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
 
   // ========== USER MANAGEMENT ==========
   const handleCreateUser = async (e) => {
-    e.preventDefault();
-    if (!newUsername.trim() || !newPassword.trim()) {
-      setError('Username and password are required');
-      return;
-    }
+      e.preventDefault();
+      if (!newUsername.trim() || !newPassword.trim()) {
+          setError('Username and password are required');
+          return;
+      }
 
-    if (newRole === 'USER' && !newCompanyId) {
-      setError('Please select a company for USER role');
-      return;
-    }
+      if (newRole === 'USER' && !newCompanyId) {
+          setError('Please select a company for USER role');
+          return;
+      }
 
-    setError('');
-    setSuccess('');
-    try {
-      await createUser({
-        username: newUsername,
-        password: newPassword,
-        role: newRole,
-        companyId: newCompanyId || null
-      });
-      setSuccess('✅ User registered successfully');
-      setNewUsername('');
-      setNewPassword('');
-      setNewRole('USER');
-      setNewCompanyId('');
-      loadData();
-    } catch (errorMsg) {
-      setError(errorMsg.message || 'Failed to create user');
-    }
+      setError('');
+      setSuccess('');
+      try {
+          // ============================================================
+          // FIX: Pass adminUsername to createUser
+          // ============================================================
+          await createUser(
+              {
+                  username: newUsername,
+                  password: newPassword,
+                  role: newRole,
+                  companyId: newCompanyId || null
+              },
+              user?.username  // ← Add this!
+          );
+          
+          setSuccess('✅ User registered successfully');
+          setNewUsername('');
+          setNewPassword('');
+          setNewRole('USER');
+          setNewCompanyId('');
+          loadData();
+      } catch (errorMsg) {
+          setError(errorMsg.message || 'Failed to create user');
+      }
   };
 
   const handleDeleteUser = async (userId, username) => {
@@ -756,14 +763,29 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
           )}
 
           {/* Show admin type for ADMIN */}
-          {isAdmin && adminPermissions && (
+          {/* {isAdmin && adminPermissions && (
             <div className="mt-3 text-xs font-mono flex items-center gap-2">
               <Shield className="w-3.5 h-3.5" />
               <span className={adminPermissions.isSuperAdmin ? 'text-purple-400' : 'text-slate-400'}>
                 {adminPermissions.adminType === 'SUPER_ADMIN' ? '🔑 Super Admin (Full Access)' : '🛠️ Operational Admin (Limited)'}
               </span>
             </div>
-          )}
+          )} */}
+
+          {/* ============================================================
+              ADMIN MANAGEMENT BUTTON - ONLY FOR SUPER ADMIN (FORM)
+              ============================================================ */}
+          {/* {isAdmin && adminPermissions?.isSuperAdmin && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setShowAdminManagement(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg text-[10px] font-mono transition-all"
+              >
+                <Shield className="w-3.5 h-3.5" />
+                Admin Management
+              </button>
+            </div>
+          )} */}
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -824,15 +846,30 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono">Role</label>
-                    <select
-                      value={newRole}
-                      onChange={(e) => setNewRole(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-red-500/50"
-                    >
-                      <option value="USER">USER (Operator)</option>
-                      <option value="ADMIN">ADMIN (Full Access)</option>
-                    </select>
+                      <label className="text-[10px] font-bold tracking-wider uppercase text-slate-400 font-mono">Role</label>
+                      <select
+                          value={newRole}
+                          onChange={(e) => {
+                              const selectedRole = e.target.value;
+                              if (selectedRole === 'ADMIN' && !adminPermissions?.isSuperAdmin) {
+                                  setError('Only Super Admins (FORM) can create other admin accounts');
+                                  return;
+                              }
+                              setNewRole(selectedRole);
+                              setError('');
+                          }}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-red-500/50"
+                      >
+                          <option value="USER">USER (Operator)</option>
+                          <option value="ADMIN" disabled={!adminPermissions?.isSuperAdmin}>
+                              ADMIN (Full Access) {!adminPermissions?.isSuperAdmin && '🔒 Super Admin only'}
+                          </option>
+                      </select>
+                      {newRole === 'ADMIN' && !adminPermissions?.isSuperAdmin && (
+                          <p className="text-[8px] text-red-400 font-mono">
+                              ⚠️ Only Super Admins can create other admin accounts
+                          </p>
+                      )}
                   </div>
 
                   {newRole === 'USER' && (
@@ -898,20 +935,21 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                       {userSearchQuery ? 'No users found matching your search' : 'No users registered'}
                     </div>
                   ) : (
+                    // ============================================================
+                    // UPDATED: Users List Rendering with Admin Hierarchy
+                    // ============================================================
                     filteredUsers.map((u) => {
                       const isAdminUser = u.role === 'ADMIN';
                       const isCurrentUser = u.username === user?.username;
                       
-                      // ============================================================
-                      // FIX: Check permissions for admin management
-                      // ============================================================
+                      // Check permissions for admin management
                       const isCurrentFormAdmin = adminPermissions?.isSuperAdmin === true;
                       const isTargetFormAdmin = u.registrationMethod === 'FORM';
                       const isTargetAdminPanel = u.registrationMethod === 'ADMIN_PANEL';
                       
                       // Can manage if:
-                      // 1. Current user is Super Admin
-                      // 2. Target is Ops Admin (NOT Super Admin/FORM) or has ADMIN_PANEL / non-FORM registrationMethod
+                      // 1. Current user is Super Admin (FORM)
+                      // 2. Target is Ops Admin (ADMIN_PANEL)
                       // 3. Target is not self
                       const showAdminButtons = isCurrentFormAdmin && isAdminUser && !isTargetFormAdmin && !isCurrentUser;
                       
@@ -930,7 +968,7 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                               }`}>
                                 {u.role}
                               </span>
-                              {isAdminUser && (
+                              {/* {isAdminUser && (
                                 <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded-full border ${
                                   isTargetFormAdmin
                                     ? 'bg-purple-500/20 text-purple-400 border-purple-500/30'
@@ -938,7 +976,7 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                                 }`}>
                                   {isTargetFormAdmin ? '🔑 Super Admin' : '🛠️ Ops Admin'}
                                 </span>
-                              )}
+                              )} */}
                               {u.companyName && (
                                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20">
                                   {u.companyName}
@@ -947,6 +985,11 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                               {u.isActive === false && (
                                 <span className="text-[8px] font-mono px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
                                   ⚠️ INACTIVE
+                                </span>
+                              )}
+                              {u.isLastSuperAdmin && (
+                                <span className="text-[8px] font-mono px-1.5 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+                                  ⭐ Last Super Admin
                                 </span>
                               )}
                             </div>
@@ -994,6 +1037,7 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                                       : 'bg-red-500/10 hover:bg-red-500/20 text-red-400 border-red-500/30'
                                   }`}
                                   title={u.isActive !== false ? 'Deactivate admin' : 'Activate admin'}
+                                  disabled={u.isLastSuperAdmin}
                                 >
                                   {u.isActive !== false ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
                                   {u.isActive !== false ? 'Active' : 'Inactive'}
@@ -1002,6 +1046,7 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                                   onClick={() => handleDeleteAdmin(u.id, u.username)}
                                   className="px-2 py-1.5 bg-red-500/10 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/20 hover:border-red-500 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
                                   title="Delete admin"
+                                  disabled={u.isLastSuperAdmin}
                                 >
                                   <Trash className="w-3.5 h-3.5" /> Delete
                                 </button>
@@ -1012,41 +1057,36 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                                 Protected Lock for FORM Admins (Cannot be managed)
                                 ============================================================ */}
                             {showProtectedLock && (
-                              <span className="px-2 py-1.5 bg-slate-800 text-slate-500 rounded-lg text-[10px] font-mono flex items-center gap-1 border border-slate-700 cursor-not-allowed" title="Super Admins cannot be managed by other Super Admins">
+                              <span className="px-2 py-1.5 bg-slate-800 text-slate-500 rounded-lg text-[10px] font-mono flex items-center gap-1 border border-slate-700 cursor-not-allowed" 
+                                    title="Super Admins cannot be managed by other Super Admins">
                                 <Lock className="w-3.5 h-3.5" /> Protected
                               </span>
                             )}
 
                             {/* ============================================================
-                                Normal user delete - Only for non-admin users
+                                Normal user operations (USER role only)
                                 ============================================================ */}
-                            {u.role !== 'ADMIN' && (
+                            {u.role === 'USER' && (
                               <>
                                 <button
                                   onClick={() => handleDeleteUser(u.id, u.username)}
                                   className="px-2 py-1.5 bg-red-500/10 hover:bg-red-650 text-red-400 hover:text-white border border-red-500/20 hover:border-red-500 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
-                                  title="Delete user"
                                 >
                                   <Trash className="w-3.5 h-3.5" /> Delete
                                 </button>
                                 <button
                                   onClick={() => openResetPasswordModal(u)}
                                   className="px-2 py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 hover:text-yellow-300 border border-yellow-500/30 hover:border-yellow-500/50 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
-                                  title="Reset user password"
                                 >
                                   <Key className="w-3.5 h-3.5" /> Reset
                                 </button>
+                                <button
+                                  onClick={() => handleSelectUserToAssign(u)}
+                                  className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-[10px] font-mono transition-all text-slate-300 hover:text-white"
+                                >
+                                  Assign
+                                </button>
                               </>
-                            )}
-                            
-                            {u.role === 'USER' && (
-                              <button
-                                onClick={() => handleSelectUserToAssign(u)}
-                                className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-[10px] font-mono transition-all text-slate-300 hover:text-white"
-                                title="Assign systems"
-                              >
-                                Assign
-                              </button>
                             )}
                           </div>
                         </div>
