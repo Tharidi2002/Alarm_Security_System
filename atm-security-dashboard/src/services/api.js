@@ -718,3 +718,38 @@ export const createUser = async (userData, adminUsername) => {
     }
     return await response.json();
 };
+
+// ============================================================
+// TOGGLE USER STATUS - With Reason
+// ============================================================
+
+export const toggleUserStatus = async (userId, status, reason, description, username) => {
+    try {
+        const url = `${API_BASE_URL}/admin/users/${userId}/toggle-status?currentUsername=${encodeURIComponent(username)}`;
+        
+        const body = {
+            status: status,
+            reason: reason || null,
+            description: description || null
+        };
+        
+        console.log('Toggling user status:', { userId, status, reason, description });
+        
+        const response = await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        
+        if (!response.ok) {
+            const errorMsg = await response.text();
+            console.error('Toggle user status error:', errorMsg);
+            throw new Error(errorMsg || 'Failed to toggle user status');
+        }
+        
+        return await response.json();
+    } catch (error) {
+        console.error('Error toggling user status:', error);
+        throw error;
+    }
+};

@@ -1176,4 +1176,93 @@ public class AdminController {
             return ResponseEntity.status(500).body("Error: " + e.getMessage());
         }
     }
+
+    // ============================================================
+    // TOGGLE USER STATUS - With Reason
+    // ============================================================
+
+    @PatchMapping("/users/{id}/toggle-status")
+    public ResponseEntity<?> toggleUserStatus(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> request,
+            @RequestParam String currentUsername) {
+        
+        try {
+            Optional<User> targetOpt = userRepository.findById(id);
+            if (targetOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            User target = targetOpt.get();
+            
+            // Check if current user is admin
+            if (!permissionService.isAdmin(currentUsername)) {
+                return ResponseEntity.status(403).body("Access denied: Only admins can toggle user status");
+            }
+            
+            // Check if target is USER
+            if (!"USER".equalsIgnoreCase(target.getRole())) {
+                return ResponseEntity.badRequest().body("Target is not a user");
+            }
+            
+            // Check if trying to deactivate self
+            if (currentUsername.equals(target.getUsername())) {
+                return ResponseEntity.badRequest().body("You cannot deactivate yourself");
+            }
+            
+            boolean isCurrentlyActive = target.getIsActive() != null ? target.getIsActive() : true;
+            boolean newStatus = !isCurrentlyActive;
+            
+            // ============================================================
+            // DEACTIVATE - Save details
+            // ============================================================
+            if (!newStatus) {
+                // Get reason and description from request
+                String reason = request.get("reason");
+                String description = request.get("description");
+                
+                if (reason == null || reason.trim().isEmpty()) {
+                    return ResponseEntity.badRequest().body("Reason is required to deactivate a user");
+                }
+                
+                // Set deactivation details
+                target.setInactivatedAt(LocalDateTime.now());
+                target.setInactivatedBy(currentUsername);
+                target.setInactivationReason(reason.trim());
+                target.setInactivationDescription(description != null ? description.trim() : null);
+            } 
+            // ============================================================
+            // REACTIVATE - Clear deactivation details
+            // ============================================================
+            else {
+                target.setReactivatedAt(LocalDateTime.now());
+                target.setReactivatedBy(currentUsername);
+                // Keep history but clear current inactive status
+            }
+            
+            target.setIsActive(newStatus);
+            userRepository.save(target);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", target.getUsername() + " is now " + (newStatus ? "ACTIVE" : "INACTIVE"));
+            response.put("username", target.getUsername());
+            response.put("isActive", newStatus);
+            response.put("role", target.getRole());
+            
+            // Return deactivation details if inactive
+            if (!newStatus) {
+                response.put("inactivatedAt", target.getInactivatedAt());
+                response.put("inactivatedBy", target.getInactivatedBy());
+                response.put("inactivationReason", target.getInactivationReason());
+                response.put("inactivationDescription", target.getInactivationDescription());
+            }
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
 }

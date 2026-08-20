@@ -1,27 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
-import { 
-  X, UserPlus, ShieldAlert, Check, Plus, AlertCircle, Users, Cpu, 
+import { X, UserPlus, ShieldAlert, Check, Plus, AlertCircle, Users, Cpu, 
   ToggleLeft, ToggleRight, Edit2, Trash2, Save, Eye, EyeOff,
   RefreshCw, Zap, Copy, CheckCircle as CheckCircleIcon,
   Key, Lock, Layers, Trash, Search, Smartphone, Settings,
-  BellOff, ShieldOff, Building, Database, Shield
-} from 'lucide-react';
-import { 
-  fetchUsers, 
-  createUser, 
-  fetchSystems, 
-  fetchCompanies,
-  assignSystems,
-  createSystem,
-  updateSystem,
-  toggleSystemStatus,
-  resetUserPassword,
-  deleteUser,
-  sendSystemCommand,
-  stopSiren,
-  getNextSystemCode
-} from '../services/api';
+  BellOff, ShieldOff, Building, Database, Shield } from 'lucide-react';
+import { fetchUsers, createUser, fetchSystems, fetchCompanies, assignSystems,
+  createSystem, updateSystem, toggleSystemStatus, resetUserPassword,
+  deleteUser, sendSystemCommand, stopSiren, getNextSystemCode,
+  toggleUserStatus } from '../services/api';
 import ZoneManagement from './ZoneManagement';
 import CompanyManagement from './CompanyManagement';
 import DeleteConfirmationModal from './DeleteConfirmationModal';
@@ -97,6 +84,17 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
 
   const [timeNow, setTimeNow] = useState(new Date());
   
+  // ============================================================
+  // DEACTIVATION MODAL STATE
+  // ============================================================
+  const [deactivateModal, setDeactivateModal] = useState({
+    isOpen: false,
+    user: null,
+    reason: '',
+    description: '',
+    type: 'USER' // or 'ADMIN'
+  });
+
   useEffect(() => {
     const interval = setInterval(() => setTimeNow(new Date()), 60000);
     return () => clearInterval(interval);
@@ -358,50 +356,131 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
     setSuccess('');
   };
 
-  // ========== ADMIN MANAGEMENT FUNCTIONS ==========
-  
-  // Toggle admin active/inactive status - WITH REASON
-  const handleToggleAdminStatus = async (adminId, currentStatus, adminUsername) => {
-    // If deactivating, show modal with reason
-    if (currentStatus) {
-      // Show deactivation modal with reason and description
-      const reason = window.prompt(`Enter reason for deactivating admin "${adminUsername}":`);
-      if (reason === null) return; // Cancel
-      if (!reason.trim()) {
-        setError('Reason is required to deactivate an admin');
-        return;
+  // ============================================================
+  // USER STATUS MANAGEMENT
+  // ============================================================
+
+  const handleToggleUserStatus = async (userId, currentStatus, targetUsername) => {
+      // If deactivating, show modal with reason
+      if (currentStatus) {
+          // Find the user
+          const targetUser = users.find(u => u.id === userId);
+          if (!targetUser) {
+              setError('User not found');
+              return;
+          }
+          
+          // Open deactivation modal
+          setDeactivateModal({
+              isOpen: true,
+              user: targetUser,
+              reason: '',
+              description: '',
+              type: 'USER'
+          });
+      } else {
+          // Reactivate - no reason needed
+          if (!window.confirm(`Are you sure you want to reactivate user "${targetUsername}"?`)) return;
+          
+          setError('');
+          setSuccess('');
+          setLoading(true);
+          
+          try {
+              // ✅ FIX: Use current logged-in user's username
+              const result = await toggleUserStatus(
+                  userId,
+                  'ACTIVE',
+                  null,
+                  null,
+                  user?.username  // ← Current admin's username
+              );
+              
+              setSuccess(`✅ ${result.message}`);
+              loadData();
+          } catch (errorMsg) {
+              setError(errorMsg.message || 'Failed to reactivate user');
+          } finally {
+              setLoading(false);
+          }
       }
+  };
+
+  // Handle deactivation confirm
+  const handleDeactivateConfirm = async () => {
+      const { user: targetUser, reason, description, type } = deactivateModal;
       
-      const description = window.prompt(`Enter additional description (optional):`);
+      if (!reason.trim()) {
+          setError('Reason is required to deactivate');
+          return;
+      }
       
       setError('');
       setSuccess('');
       setLoading(true);
       
       try {
-        const response = await fetch(`${API_BASE_URL}/admin/admins/${adminId}/toggle-status?currentUsername=${encodeURIComponent(user.username)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            reason: reason.trim(),
-            description: description || null
-          })
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          setSuccess(`✅ ${data.message}`);
+          let result;
+          
+          if (type === 'USER') {
+              // ✅ FIX: Use current logged-in user's username (not target user)
+              result = await toggleUserStatus(
+                  targetUser.id,
+                  'INACTIVE',
+                  reason.trim(),
+                  description.trim() || null,
+                  user?.username  // ← Current admin's username (from props)
+              );
+          } else {
+              // ADMIN toggle
+              const response = await fetch(`${API_BASE_URL}/admin/admins/${targetUser.id}/toggle-status?currentUsername=${encodeURIComponent(user?.username)}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ 
+                      reason: reason.trim(),
+                      description: description.trim() || null
+                  })
+              });
+              
+              if (response.ok) {
+                  result = await response.json();
+              } else {
+                  const errorMsg = await response.text();
+                  throw new Error(errorMsg || 'Failed to deactivate');
+              }
+          }
+          
+          setSuccess(`✅ ${result.message}`);
+          setDeactivateModal({ isOpen: false, user: null, reason: '', description: '', type: 'USER' });
           loadData();
           loadAdminPermissions();
-        } else {
-          const errorMsg = await response.text();
-          setError(errorMsg || 'Failed to toggle admin status');
-        }
       } catch (errorMsg) {
-        setError(errorMsg.message || 'Failed to toggle admin status');
+          setError(errorMsg.message || 'Failed to deactivate');
       } finally {
-        setLoading(false);
+          setLoading(false);
       }
+  };
+
+  // ========== ADMIN MANAGEMENT FUNCTIONS ==========
+  
+  // Toggle admin active/inactive status - WITH REASON
+  const handleToggleAdminStatus = async (adminId, currentStatus, adminUsername) => {
+    if (currentStatus) {
+      // Find the admin
+      const admin = users.find(u => u.id === adminId);
+      if (!admin) {
+        setError('Admin not found');
+        return;
+      }
+      
+      // Open deactivation modal for admin
+      setDeactivateModal({
+        isOpen: true,
+        user: admin,
+        reason: '',
+        description: '',
+        type: 'ADMIN'
+      });
     } else {
       // Reactivate - no reason needed
       if (!window.confirm(`Are you sure you want to reactivate admin "${adminUsername}"?`)) return;
@@ -971,7 +1050,7 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                     </button>
                   </div>
                 </div>
-                
+
                 <div className="divide-y divide-slate-800/60 border border-slate-800 rounded-xl overflow-hidden bg-slate-950/20">
                   {loading ? (
                     <div className="p-6 text-center text-xs text-slate-500 font-mono">Loading user directory...</div>
@@ -1133,20 +1212,34 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
                               {u.role === 'USER' && (
                                 <>
                                   <button
+                                    onClick={() => handleToggleUserStatus(u.id, u.isActive !== false, u.username)}
+                                    className={`px-2 py-1.5 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1 border ${
+                                      u.isActive !== false
+                                        ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                        : 'bg-red-500/10 hover:bg-red-500/20 text-red-400 border-red-500/30'
+                                    }`}
+                                    title={u.isActive !== false ? 'Deactivate user' : 'Activate user'}
+                                  >
+                                    {u.isActive !== false ? '🟢 Active' : '🔴 Inactive'}
+                                  </button>
+                                  <button
                                     onClick={() => handleDeleteUser(u.id, u.username)}
                                     className="px-2 py-1.5 bg-red-500/10 hover:bg-red-650 text-red-400 hover:text-white border border-red-500/20 hover:border-red-500 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
+                                    title="Delete user"
                                   >
                                     <Trash className="w-3.5 h-3.5" /> Delete
                                   </button>
                                   <button
                                     onClick={() => openResetPasswordModal(u)}
                                     className="px-2 py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 hover:text-yellow-300 border border-yellow-500/30 hover:border-yellow-500/50 rounded-lg text-[10px] font-mono transition-all flex items-center gap-1"
+                                    title="Reset user password"
                                   >
                                     <Key className="w-3.5 h-3.5" /> Reset
                                   </button>
                                   <button
                                     onClick={() => handleSelectUserToAssign(u)}
                                     className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-[10px] font-mono transition-all text-slate-300 hover:text-white"
+                                    title="Assign systems"
                                   >
                                     Assign
                                   </button>
@@ -1876,6 +1969,100 @@ export default function AdminPanel({ isOpen, onClose, user, onSystemChange }) {
             loadAdminPermissions();
           }}
         />
+      )}
+
+      {/* ========== DEACTIVATION MODAL ========== */}
+      {deactivateModal.isOpen && deactivateModal.user && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-red-500/30 rounded-2xl max-w-md w-full shadow-2xl shadow-red-500/10 p-6">
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-3">
+                <div className="bg-red-500/10 p-2 rounded-lg border border-red-500/20">
+                  <ShieldAlert className="w-5 h-5 text-red-500" />
+                </div>
+                <h3 className="text-lg font-bold text-white">
+                  ⚠️ Deactivate {deactivateModal.type === 'USER' ? 'User' : 'Admin'}
+                </h3>
+              </div>
+              <button 
+                onClick={() => setDeactivateModal({ isOpen: false, user: null, reason: '', description: '', type: 'USER' })}
+                className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-400 hover:text-white" />
+              </button>
+            </div>
+            
+            <p className="text-sm text-slate-400 mb-4">
+              You are about to deactivate <span className="text-white font-bold">{deactivateModal.user.username}</span>
+              <br />
+              <span className="text-xs text-slate-500">
+                Role: <span className="text-blue-400">{deactivateModal.user.role}</span>
+              </span>
+            </p>
+            
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-400 font-mono">
+                  Reason <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={deactivateModal.reason}
+                  onChange={(e) => setDeactivateModal(prev => ({ ...prev, reason: e.target.value }))}
+                  placeholder="Enter reason for deactivation..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-red-500/50 transition-colors"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-400 font-mono">
+                  Description <span className="text-slate-500">(Optional)</span>
+                </label>
+                <textarea
+                  value={deactivateModal.description}
+                  onChange={(e) => setDeactivateModal(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="Additional details..."
+                  rows="3"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-red-500/50 transition-colors resize-none"
+                />
+              </div>
+            </div>
+            
+            {error && (
+              <div className="mt-3 bg-red-500/10 border border-red-500/30 rounded-xl p-3 flex items-start gap-2.5 text-sm text-red-400">
+                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+            
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setDeactivateModal({ isOpen: false, user: null, reason: '', description: '', type: 'USER' })}
+                className="flex-1 py-2 border border-slate-700 text-slate-400 hover:text-white rounded-lg text-sm font-mono transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeactivateConfirm}
+                disabled={loading || !deactivateModal.reason.trim()}
+                className="flex-1 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg text-sm font-mono transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {loading ? (
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Deactivate
+                  </>
+                )}
+              </button>
+            </div>
+            
+            <p className="text-[10px] text-slate-500 font-mono text-center mt-4">
+              ⚠️ Deactivated users will not be able to access the system
+            </p>
+          </div>
+        </div>
       )}
     </div>
   );
