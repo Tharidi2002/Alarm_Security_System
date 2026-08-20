@@ -3,6 +3,7 @@ package com.security.alarm.entity;
 import jakarta.persistence.*;
 import lombok.*;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "users")
@@ -31,7 +32,7 @@ public class User {
     private Company company;
 
     // ============================================================
-    // NEW FIELDS FOR ADMIN ACCESS CONTROL
+    // ADMIN ACCESS CONTROL FIELDS
     // ============================================================
     
     @Column(name = "is_active")
@@ -42,4 +43,26 @@ public class User {
     
     @Column(name = "registration_method")
     private String registrationMethod; // "FORM" or "ADMIN_PANEL"
+
+    // ============================================================
+    // NEW: INACTIVE DETAILS FIELDS
+    // ============================================================
+    
+    @Column(name = "inactivated_at")
+    private LocalDateTime inactivatedAt;
+    
+    @Column(name = "inactivated_by")
+    private String inactivatedBy;
+    
+    @Column(name = "inactivation_reason")
+    private String inactivationReason;
+    
+    @Column(name = "inactivation_description")
+    private String inactivationDescription;
+    
+    @Column(name = "reactivated_at")
+    private LocalDateTime reactivatedAt;
+    
+    @Column(name = "reactivated_by")
+    private String reactivatedBy;
 }

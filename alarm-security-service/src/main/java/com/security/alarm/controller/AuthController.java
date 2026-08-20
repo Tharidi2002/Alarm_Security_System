@@ -181,7 +181,6 @@ public class AuthController {
     // ============================================================
     // LOGIN ENDPOINT - UPDATED WITH COMPANY INFO
     // ============================================================
-    
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> credentials) {
         String username = credentials.get("username");
@@ -202,34 +201,59 @@ public class AuthController {
             return ResponseEntity.status(401).body("Invalid credentials");
         }
 
+        // ============================================================
+        // FIX: Check if user is inactive - Return 200 OK with isActive: false
+        // ============================================================
+        if (user.getIsActive() != null && !user.getIsActive()) {
+            Map<String, Object> inactiveResponse = new HashMap<>();
+            inactiveResponse.put("success", false);
+            inactiveResponse.put("isActive", false);
+            inactiveResponse.put("message", "Your account is inactive");
+            inactiveResponse.put("id", user.getId());
+            inactiveResponse.put("username", user.getUsername());
+            inactiveResponse.put("role", user.getRole());
+            inactiveResponse.put("registrationMethod", user.getRegistrationMethod());
+            inactiveResponse.put("isSuperAdmin", false);
+            inactiveResponse.put("inactivatedAt", user.getInactivatedAt());
+            inactiveResponse.put("inactivatedBy", user.getInactivatedBy());
+            inactiveResponse.put("inactivationReason", user.getInactivationReason());
+            inactiveResponse.put("inactivationDescription", user.getInactivationDescription());
+            
+            if (user.getCompany() != null) {
+                inactiveResponse.put("companyId", user.getCompany().getId());
+                inactiveResponse.put("companyName", user.getCompany().getCompanyName());
+                inactiveResponse.put("companyCode", user.getCompany().getCompanyCode());
+            }
+            
+            // Return 200 OK so frontend can handle gracefully
+            return ResponseEntity.ok(inactiveResponse);
+        }
+
+        // ============================================================
+        // ACTIVE USER - Normal login response
+        // ============================================================
         Map<String, Object> response = new HashMap<>();
         response.put("id", user.getId());
         response.put("username", user.getUsername());
         response.put("role", user.getRole());
-
-        // ============================================================
-        // NEW: Add registration method and admin type
-        // ============================================================
-        String registrationMethod = permissionService.getRegistrationMethod(username);
-        response.put("registrationMethod", registrationMethod);
-        response.put("isSuperAdmin", "FORM".equals(registrationMethod));
         response.put("isActive", user.getIsActive() != null ? user.getIsActive() : true);
-
+        response.put("registrationMethod", permissionService.getRegistrationMethod(username));
+        response.put("isSuperAdmin", "FORM".equals(permissionService.getRegistrationMethod(username)));
+        
+        // Add inactive details (in case they were reactivated but we keep history)
+        response.put("inactivatedAt", user.getInactivatedAt());
+        response.put("inactivatedBy", user.getInactivatedBy());
+        response.put("inactivationReason", user.getInactivationReason());
+        response.put("inactivationDescription", user.getInactivationDescription());
+        
         if (user.getCompany() != null) {
             response.put("companyId", user.getCompany().getId());
             response.put("companyName", user.getCompany().getCompanyName());
             response.put("companyCode", user.getCompany().getCompanyCode());
-        } else {
-            response.put("companyId", null);
-            response.put("companyName", null);
-            response.put("companyCode", null);
         }
 
-        // ============================================================
-        // Get accessible systems based on role
-        // ============================================================
+        // Get accessible systems
         List<String> accessibleSystems;
-        
         if ("ADMIN".equalsIgnoreCase(user.getRole())) {
             accessibleSystems = alarmSystemRepository.findAll().stream()
                 .map(s -> s.getSystemCode())
@@ -244,7 +268,6 @@ public class AuthController {
                 accessibleSystems = List.of();
             }
         }
-        
         response.put("accessibleSystems", accessibleSystems);
 
         // Also keep assignedSystems for backward compatibility

@@ -6,7 +6,10 @@ import com.security.alarm.repository.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -52,14 +55,61 @@ public class PermissionService {
     }
 
     // ============================================================
-    // REGISTRATION METHOD CHECKS - UPDATED
+    // NEW: ACTIVE USER CHECKS
     // ============================================================
 
     /**
-     * Check if user is FORM Admin (Super Admin)
-     * FORM Admins are registered via the registration form with secret code
-     * or are the first admin created
+     * Check if user is active
      */
+    public boolean isUserActive(String username) {
+        if (username == null || username.isEmpty()) return false;
+        Optional<User> userOpt = userRepository.findByUsername(username);
+        if (userOpt.isEmpty()) return false;
+        User user = userOpt.get();
+        return user.getIsActive() != null && user.getIsActive();
+    }
+
+    /**
+     * Check if user is active - with User object
+     */
+    public boolean isUserActive(User user) {
+        if (user == null) return false;
+        return user.getIsActive() != null && user.getIsActive();
+    }
+
+    /**
+     * Validate user is active - throws exception if inactive
+     */
+    public void validateUserActive(String username) {
+        if (!isUserActive(username)) {
+            User user = getUser(username);
+            String reason = user != null && user.getInactivationReason() != null 
+                ? user.getInactivationReason() 
+                : "Account deactivated";
+            throw new SecurityException("Your account is inactive. Reason: " + reason + ". Please contact administrator.");
+        }
+    }
+
+    /**
+     * Get inactive user details
+     */
+    public Map<String, Object> getInactiveUserDetails(String username) {
+        User user = getUser(username);
+        if (user == null) return null;
+        
+        Map<String, Object> details = new HashMap<>();
+        details.put("isActive", user.getIsActive());
+        details.put("inactivatedAt", user.getInactivatedAt());
+        details.put("inactivatedBy", user.getInactivatedBy());
+        details.put("inactivationReason", user.getInactivationReason());
+        details.put("inactivationDescription", user.getInactivationDescription());
+        return details;
+    }
+
+    // ============================================================
+    // REGISTRATION METHOD CHECKS
+    // ============================================================
+
     public boolean isFormAdmin(String username) {
         if (username == null || username.isEmpty()) return false;
         
@@ -68,19 +118,21 @@ public class PermissionService {
         
         User user = userOpt.get();
         
-        // 1. First check: User entity's registration_method
+        // Check active status first
+        if (!isUserActive(user)) {
+            return false;
+        }
+        
         if (user.getRegistrationMethod() != null) {
             if ("FORM".equals(user.getRegistrationMethod())) {
                 return true;
             }
         }
         
-        // 2. Second check: User entity's is_super_admin flag
         if (user.getIsSuperAdmin() != null && user.getIsSuperAdmin()) {
             return true;
         }
         
-        // 3. Fallback: Check audit log (for backwards compatibility)
         if (!"ADMIN".equalsIgnoreCase(user.getRole())) {
             return false;
         }
@@ -89,7 +141,6 @@ public class PermissionService {
             Optional<RegistrationAuditLog> formLog = registrationAuditLogRepository
                 .findByUsernameAndMethodForm(username);
             if (formLog.isPresent()) {
-                // Update user entity for future checks
                 user.setRegistrationMethod("FORM");
                 user.setIsSuperAdmin(true);
                 userRepository.save(user);
@@ -102,10 +153,6 @@ public class PermissionService {
         return false;
     }
 
-    /**
-     * Check if user is ADMIN_PANEL Admin (Operational Admin)
-     * ADMIN_PANEL Admins are created by FORM Admins via the admin panel
-     */
     public boolean isAdminPanelAdmin(String username) {
         if (username == null || username.isEmpty()) return false;
         
@@ -118,24 +165,25 @@ public class PermissionService {
             return false;
         }
         
-        // 1. First check: User entity's registration_method
+        // Check active status first
+        if (!isUserActive(user)) {
+            return false;
+        }
+        
         if (user.getRegistrationMethod() != null) {
             if ("ADMIN_PANEL".equals(user.getRegistrationMethod())) {
                 return true;
             }
         }
         
-        // 2. Second check: is_super_admin should be false
         if (user.getIsSuperAdmin() != null && user.getIsSuperAdmin()) {
             return false;
         }
         
-        // 3. Fallback: Check audit log
         try {
             Optional<RegistrationAuditLog> panelLog = registrationAuditLogRepository
                 .findByUsernameAndMethodAdminPanel(username);
             if (panelLog.isPresent()) {
-                // Update user entity for future checks
                 user.setRegistrationMethod("ADMIN_PANEL");
                 user.setIsSuperAdmin(false);
                 userRepository.save(user);
@@ -148,10 +196,6 @@ public class PermissionService {
         return false;
     }
 
-    /**
-     * Get registration method for a user
-     * Returns: "FORM", "ADMIN_PANEL", or null
-     */
     public String getRegistrationMethod(String username) {
         if (username == null || username.isEmpty()) return null;
         
@@ -160,22 +204,18 @@ public class PermissionService {
         
         User user = userOpt.get();
         
-        // If user is not ADMIN, return null
         if (!"ADMIN".equalsIgnoreCase(user.getRole())) {
             return null;
         }
         
-        // 1. Check User entity's registration_method
         if (user.getRegistrationMethod() != null && !user.getRegistrationMethod().isEmpty()) {
             return user.getRegistrationMethod();
         }
         
-        // 2. Check audit log (with error handling)
         try {
             Optional<RegistrationAuditLog> formLog = registrationAuditLogRepository
                     .findByUsernameAndMethodForm(username);
             if (formLog.isPresent()) {
-                // Update user entity
                 user.setRegistrationMethod("FORM");
                 user.setIsSuperAdmin(true);
                 userRepository.save(user);
@@ -189,7 +229,6 @@ public class PermissionService {
             Optional<RegistrationAuditLog> panelLog = registrationAuditLogRepository
                     .findByUsernameAndMethodAdminPanel(username);
             if (panelLog.isPresent()) {
-                // Update user entity
                 user.setRegistrationMethod("ADMIN_PANEL");
                 user.setIsSuperAdmin(false);
                 userRepository.save(user);
@@ -199,7 +238,6 @@ public class PermissionService {
             System.err.println("Warning: Could not check ADMIN_PANEL audit log for " + username);
         }
         
-        // 3. Default based on is_super_admin
         if (user.getIsSuperAdmin() != null && user.getIsSuperAdmin()) {
             user.setRegistrationMethod("FORM");
             userRepository.save(user);
@@ -209,120 +247,84 @@ public class PermissionService {
         return null;
     }
 
+    public boolean isSuperAdmin(String username) {
+        return isFormAdmin(username);
+    }
+
+    public long countFormAdmins() {
+        long count = userRepository.findAll().stream()
+            .filter(u -> "ADMIN".equalsIgnoreCase(u.getRole()))
+            .filter(u -> isUserActive(u))
+            .filter(u -> {
+                if (u.getRegistrationMethod() != null) {
+                    return "FORM".equals(u.getRegistrationMethod());
+                }
+                return u.getIsSuperAdmin() != null && u.getIsSuperAdmin();
+            })
+            .count();
+        
+        if (count == 0) {
+            count = registrationAuditLogRepository.countFormAdmins();
+        }
+        
+        return count;
+    }
+
     // ============================================================
-    // ADMIN MANAGEMENT PERMISSIONS - UPDATED
+    // ADMIN MANAGEMENT PERMISSIONS - WITH ACTIVE CHECKS
     // ============================================================
 
-    /**
-     * Check if current user can manage (reset password, active/inactive, delete) a target admin
-     * 
-     * RULES:
-     * 1. FORM Admin can manage ADMIN_PANEL Admins ONLY (NOT other FORM Admins)
-     * 2. ADMIN_PANEL Admin can ONLY manage themselves
-     * 3. ADMIN_PANEL Admin CANNOT manage other admins
-     * 4. FORM Admins CANNOT manage other FORM Admins
-     * 5. Anyone can manage themselves (for password reset)
-     */
     public boolean canManageAdmin(String currentUsername, String targetUsername) {
-        // If target is not an admin, return false
-        if (!isAdmin(targetUsername)) {
-            return false;
-        }
-
-        // If current user is not an admin, return false
-        if (!isAdmin(currentUsername)) {
-            return false;
-        }
-
-        // If trying to manage self, always allow (for password reset)
-        if (currentUsername.equals(targetUsername)) {
-            return true;
-        }
-
-        // Get registration methods
+        if (!isAdmin(targetUsername)) return false;
+        if (!isAdmin(currentUsername)) return false;
+        
+        // Check if current user is active
+        if (!isUserActive(currentUsername)) return false;
+        
+        if (currentUsername.equals(targetUsername)) return true;
+        
         String currentMethod = getRegistrationMethod(currentUsername);
         String targetMethod = getRegistrationMethod(targetUsername);
-
-        // If current user is not properly registered, deny
-        if (currentMethod == null) {
-            return false;
-        }
-
-        // ============================================================
-        // FORM Admin can ONLY manage ADMIN_PANEL Admins
-        // ============================================================
+        
+        if (currentMethod == null) return false;
+        
         if ("FORM".equals(currentMethod)) {
-            // FORM Admin can manage ADMIN_PANEL Admins ONLY
-            // Cannot manage other FORM Admins
             return "ADMIN_PANEL".equals(targetMethod);
         }
-
-        // If current user is ADMIN_PANEL Admin, they CANNOT manage other admins
+        
         if ("ADMIN_PANEL".equals(currentMethod)) {
-            return false; // Can only manage self (already handled above)
+            return false;
         }
-
+        
         return false;
     }
 
-    /**
-     * Check if current user can delete a target admin
-     * Same rules as canManageAdmin, but additional check:
-     * - Cannot delete the last FORM Admin (system needs at least one super admin)
-     */
     public boolean canDeleteAdmin(String currentUsername, String targetUsername) {
-        // First check if they can manage the admin
-        if (!canManageAdmin(currentUsername, targetUsername)) {
-            return false;
-        }
-
-        // If target is FORM Admin, check if it's the last one
+        if (!canManageAdmin(currentUsername, targetUsername)) return false;
+        
         if (isFormAdmin(targetUsername)) {
             long formAdminCount = countFormAdmins();
-            // Cannot delete if this is the last FORM Admin
-            if (formAdminCount <= 1) {
-                return false;
-            }
+            if (formAdminCount <= 1) return false;
         }
-
+        
         return true;
     }
 
-    /**
-     * Check if current user can change status (active/inactive) of a target admin
-     */
     public boolean canToggleAdminStatus(String currentUsername, String targetUsername) {
-        // Same as canManageAdmin
         return canManageAdmin(currentUsername, targetUsername);
     }
 
-    /**
-     * Check if current user can reset password of a target admin
-     */
     public boolean canResetAdminPassword(String currentUsername, String targetUsername) {
-        // Same as canManageAdmin
         return canManageAdmin(currentUsername, targetUsername);
     }
 
-    /**
-     * Check if current user can create a new admin
-     * Only FORM Admins can create new admins
-     */
     public boolean canCreateAdmin(String currentUsername) {
-        return isFormAdmin(currentUsername);
+        return isFormAdmin(currentUsername) && isUserActive(currentUsername);
     }
 
-    /**
-     * Check if current user can create a new user
-     * Both FORM and ADMIN_PANEL admins can create users
-     */
     public boolean canCreateUser(String currentUsername) {
-        return isAdmin(currentUsername);
+        return isAdmin(currentUsername) && isUserActive(currentUsername);
     }
-
-    // ============================================================
-    // ADMIN TYPE LABELS
-    // ============================================================
 
     public String getAdminTypeLabel(String username) {
         String method = getRegistrationMethod(username);
@@ -334,39 +336,8 @@ public class PermissionService {
         return "Unknown";
     }
 
-    /**
-     * Get count of FORM Admins (Super Admins)
-     */
-    public long countFormAdmins() {
-        // Count from User entity first
-        long count = userRepository.findAll().stream()
-            .filter(u -> "ADMIN".equalsIgnoreCase(u.getRole()))
-            .filter(u -> {
-                if (u.getRegistrationMethod() != null) {
-                    return "FORM".equals(u.getRegistrationMethod());
-                }
-                return u.getIsSuperAdmin() != null && u.getIsSuperAdmin();
-            })
-            .count();
-        
-        // If count is 0, fallback to audit log
-        if (count == 0) {
-            count = registrationAuditLogRepository.countFormAdmins();
-        }
-        
-        return count;
-    }
-
     // ============================================================
-    // IS SUPER ADMIN (Shortcut)
-    // ============================================================
-
-    public boolean isSuperAdmin(String username) {
-        return isFormAdmin(username);
-    }
-
-    // ============================================================
-    // COMPANY ACCESS CHECKS
+    // COMPANY ACCESS CHECKS - WITH ACTIVE CHECK
     // ============================================================
 
     public Long getUserCompanyId(String username) {
@@ -386,6 +357,7 @@ public class PermissionService {
     }
 
     public boolean canAccessCompany(String username, Long companyId) {
+        if (!isUserActive(username)) return false;
         if (isAdmin(username)) return true;
         if (isUser(username)) {
             Long userCompanyId = getUserCompanyId(username);
@@ -397,10 +369,11 @@ public class PermissionService {
     }
 
     // ============================================================
-    // SYSTEM ACCESS CHECKS
+    // SYSTEM ACCESS CHECKS - WITH ACTIVE CHECK
     // ============================================================
 
     public boolean canAccessSystem(String username, Long systemId) {
+        if (!isUserActive(username)) return false;
         if (isAdmin(username)) return true;
         if (isUser(username)) {
             Long userCompanyId = getUserCompanyId(username);
@@ -415,6 +388,7 @@ public class PermissionService {
     }
 
     public boolean canManageSystem(String username, Long systemId) {
+        if (!isUserActive(username)) return false;
         if (isAdmin(username)) return true;
         if (isUser(username)) {
             Long userCompanyId = getUserCompanyId(username);
@@ -429,10 +403,11 @@ public class PermissionService {
     }
 
     // ============================================================
-    // ALERT ACCESS CHECKS
+    // ALERT ACCESS CHECKS - WITH ACTIVE CHECK
     // ============================================================
 
     public boolean canAccessAlert(String username, Long alertId) {
+        if (!isUserActive(username)) return false;
         if (isAdmin(username)) return true;
         if (isUser(username)) {
             Long userCompanyId = getUserCompanyId(username);
@@ -452,25 +427,11 @@ public class PermissionService {
     }
 
     // ============================================================
-    // COMPANY ACTIVE CHECK
-    // ============================================================
-
-    public boolean isCompanyActive(Long companyId) {
-        if (companyId == null) return false;
-        Optional<Company> companyOpt = companyRepository.findById(companyId);
-        if (companyOpt.isEmpty()) return false;
-        return "ACTIVE".equals(companyOpt.get().getStatus());
-    }
-
-    public boolean isCompanyInactive(Long companyId) {
-        return !isCompanyActive(companyId);
-    }
-
-    // ============================================================
-    // GET FILTERED DATA
+    // GET FILTERED DATA - WITH ACTIVE CHECK
     // ============================================================
 
     public List<AlarmSystem> getAccessibleSystems(String username) {
+        if (!isUserActive(username)) return List.of();
         if (isAdmin(username)) {
             return alarmSystemRepository.findAll();
         }
@@ -483,6 +444,7 @@ public class PermissionService {
     }
 
     public List<AlertLog> getAccessibleAlerts(String username) {
+        if (!isUserActive(username)) return List.of();
         if (isAdmin(username)) {
             return alertLogRepository.findAllActiveAlerts();
         }
@@ -500,7 +462,7 @@ public class PermissionService {
     }
 
     // ============================================================
-    // VALIDATION METHODS
+    // VALIDATION METHODS - WITH ACTIVE CHECK
     // ============================================================
 
     public void validateCompanyAccess(String username, Long companyId) {
@@ -545,6 +507,8 @@ public class PermissionService {
                 ", Role: " + user.getRole() +
                 ", Registration Method: " + user.getRegistrationMethod() +
                 ", isSuperAdmin: " + user.getIsSuperAdmin() +
+                ", isActive: " + user.getIsActive() +
+                ", inactivatedBy: " + user.getInactivatedBy() +
                 ", Company: " + (user.getCompany() != null ? user.getCompany().getCompanyName() : "NULL") +
                 ", Company ID: " + (user.getCompany() != null ? user.getCompany().getId() : "NULL"));
     }

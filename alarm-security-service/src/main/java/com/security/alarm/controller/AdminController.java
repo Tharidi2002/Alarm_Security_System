@@ -962,6 +962,7 @@ public class AdminController {
     @PatchMapping("/admins/{id}/toggle-status")
     public ResponseEntity<?> toggleAdminStatus(
             @PathVariable Long id,
+            @RequestBody Map<String, String> request,
             @RequestParam String currentUsername) {
         
         try {
@@ -972,7 +973,6 @@ public class AdminController {
             
             User target = targetOpt.get();
             
-            // Only admins can be toggled
             if (!"ADMIN".equalsIgnoreCase(target.getRole())) {
                 return ResponseEntity.badRequest().body("Target is not an admin");
             }
@@ -987,18 +987,47 @@ public class AdminController {
                 return ResponseEntity.badRequest().body("You cannot deactivate yourself");
             }
             
-            // Check if trying to deactivate last FORM Admin
-            if (permissionService.isFormAdmin(target.getUsername()) && target.getIsActive() != false) {
-                long formAdminCount = permissionService.countFormAdmins();
-                if (formAdminCount <= 1) {
-                    return ResponseEntity.badRequest().body(
-                        "Cannot deactivate the last Super Admin. System needs at least one active Super Admin."
-                    );
+            boolean isCurrentlyActive = target.getIsActive() != null ? target.getIsActive() : true;
+            boolean newStatus = !isCurrentlyActive;
+            
+            // ============================================================
+            // DEACTIVATE - Save details
+            // ============================================================
+            if (!newStatus) {
+                // Check if trying to deactivate last FORM Admin
+                if (permissionService.isFormAdmin(target.getUsername())) {
+                    long formAdminCount = permissionService.countFormAdmins();
+                    if (formAdminCount <= 1) {
+                        return ResponseEntity.badRequest().body(
+                            "Cannot deactivate the last Super Admin. System needs at least one active Super Admin."
+                        );
+                    }
                 }
+                
+                // Get reason and description from request
+                String reason = request.get("reason");
+                String description = request.get("description");
+                
+                if (reason == null || reason.trim().isEmpty()) {
+                    return ResponseEntity.badRequest().body("Reason is required to deactivate an admin");
+                }
+                
+                // Set deactivation details
+                target.setInactivatedAt(LocalDateTime.now());
+                target.setInactivatedBy(currentUsername);
+                target.setInactivationReason(reason.trim());
+                target.setInactivationDescription(description != null ? description.trim() : null);
+            } 
+            // ============================================================
+            // REACTIVATE - Clear deactivation details
+            // ============================================================
+            else {
+                target.setReactivatedAt(LocalDateTime.now());
+                target.setReactivatedBy(currentUsername);
+                // Keep history but clear current inactive status
+                // We keep inactivated_at etc for audit trail
             }
             
-            // Toggle status
-            boolean newStatus = !(target.getIsActive() != null ? target.getIsActive() : true);
             target.setIsActive(newStatus);
             userRepository.save(target);
             
@@ -1007,6 +1036,14 @@ public class AdminController {
             response.put("message", target.getUsername() + " is now " + (newStatus ? "ACTIVE" : "INACTIVE"));
             response.put("username", target.getUsername());
             response.put("isActive", newStatus);
+            
+            // Return deactivation details if inactive
+            if (!newStatus) {
+                response.put("inactivatedAt", target.getInactivatedAt());
+                response.put("inactivatedBy", target.getInactivatedBy());
+                response.put("inactivationReason", target.getInactivationReason());
+                response.put("inactivationDescription", target.getInactivationDescription());
+            }
             
             return ResponseEntity.ok(response);
             
@@ -1104,6 +1141,34 @@ public class AdminController {
             response.put("canManage", permissionService.canManageAdmin(currentUsername, target.getUsername()));
             response.put("canDelete", permissionService.canDeleteAdmin(currentUsername, target.getUsername()));
             response.put("canToggle", permissionService.canToggleAdminStatus(currentUsername, target.getUsername()));
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
+
+    // ============================================================
+    // Get Inactive User Details
+    // ============================================================
+
+    @GetMapping("/users/{username}/inactive-details")
+    public ResponseEntity<?> getInactiveUserDetails(@PathVariable String username) {
+        try {
+            Optional<User> userOpt = userRepository.findByUsername(username);
+            if (userOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            User user = userOpt.get();
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("isActive", user.getIsActive());
+            response.put("inactivatedAt", user.getInactivatedAt());
+            response.put("inactivatedBy", user.getInactivatedBy());
+            response.put("inactivationReason", user.getInactivationReason());
+            response.put("inactivationDescription", user.getInactivationDescription());
             
             return ResponseEntity.ok(response);
             

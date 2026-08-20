@@ -61,8 +61,15 @@ export default function Login({ onLoginSuccess, onShowRegister, onUnlockRegister
     setError('');
     setSuccessMessage('');
 
-    try {
+  try {
       const userData = await login(username, password);
+      
+      if (userData.isActive === false) {
+        localStorage.setItem('user', JSON.stringify(userData));
+        onLoginSuccess(userData);
+        return;
+      }
+      
       onLoginSuccess(userData);
     } catch (err) {
       setError(err.message);

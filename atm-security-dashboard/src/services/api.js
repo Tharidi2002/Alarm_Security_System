@@ -9,11 +9,14 @@ export const login = async (username, password) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
   });
+
   if (!response.ok) {
     const error = await response.text();
     throw new Error(error || 'Login failed');
   }
-  return await response.json();
+
+  const data = await response.json();
+  return data;
 };
 
 export const getCurrentUser = async (username) => {

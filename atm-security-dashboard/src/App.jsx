@@ -1,10 +1,9 @@
-// src/App.jsx
-
 import { useState, useEffect } from 'react';
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Notifications from './pages/Notifications';
+import InactivePage from './pages/InactivePage';
 import './index.css';
 import { checkServerHealth } from './services/api';
 
@@ -30,12 +29,23 @@ function App() {
     };
     checkServer();
     
-    // Check every 30 seconds
     const interval = setInterval(checkServer, 30000);
     return () => clearInterval(interval);
   }, [user]);
 
+  // ============================================================
+  // NEW: Check if user is inactive - Redirect to InactivePage
+  // ============================================================
+  const isUserInactive = user && user.isActive === false;
+
   const handleLoginSuccess = (userData) => {
+    // Check if user is inactive
+    if (userData.isActive === false) {
+      localStorage.setItem('user', JSON.stringify(userData));
+      setUser(userData);
+      return; // Stay on InactivePage
+    }
+    
     localStorage.setItem('user', JSON.stringify(userData));
     setUser(userData);
     setShowNotifications(false);
@@ -68,6 +78,18 @@ function App() {
   const handleBackFromNotifications = () => {
     setShowNotifications(false);
   };
+
+  // ============================================================
+  // NEW: IF USER IS INACTIVE - Show InactivePage
+  // ============================================================
+  if (user && user.isActive === false) {
+    return (
+      <InactivePage 
+        user={user} 
+        onLogout={handleLogout} 
+      />
+    );
+  }
 
   // ===== IF SHOW NOTIFICATIONS =====
   if (user && showNotifications) {
