@@ -753,3 +753,79 @@ export const toggleUserStatus = async (userId, status, reason, description, user
         throw error;
     }
 };
+
+// ============================================================
+// RETENTION & REPORT MARKING APIs
+// ============================================================
+
+// Mark alerts as exported when generating report
+export const markAlertsAsExported = async (alertIds, reportType, fromDate, toDate, username) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/reports/mark-exported`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                alertIds,
+                reportType,
+                fromDate,
+                toDate,
+                username
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(error || 'Failed to mark alerts as exported');
+        }
+        
+        return await response.json();
+    } catch (error) {
+        console.error('Error marking alerts as exported:', error);
+        throw error;
+    }
+};
+
+// Get pending deletion alerts
+export const getPendingDeletionAlerts = async (username) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/retention/pending-delete?username=${encodeURIComponent(username)}`);
+        if (!response.ok) {
+            throw new Error('Failed to fetch pending deletion alerts');
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching pending deletion alerts:', error);
+        return [];
+    }
+};
+
+// Get retention stats
+export const getRetentionStats = async (username) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/retention/stats?username=${encodeURIComponent(username)}`);
+        if (!response.ok) {
+            throw new Error('Failed to fetch retention stats');
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching retention stats:', error);
+        return { pendingDeletion: 0 };
+    }
+};
+
+// Postpone deletion
+export const postponeDeletion = async (alertId, username) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/retention/postpone/${alertId}?username=${encodeURIComponent(username)}`, {
+            method: 'POST'
+        });
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(error || 'Failed to postpone deletion');
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Error postponing deletion:', error);
+        throw error;
+    }
+};

@@ -42,6 +42,13 @@ public class NotificationService {
     public static final String TYPE_HEARTBEAT_LOST = "HEARTBEAT_LOST";
     public static final String TYPE_HEARTBEAT_RESTORED = "HEARTBEAT_RESTORED";
     public static final String TYPE_ZONE_UPDATED = "ZONE_UPDATED";
+    
+    // ============================================================
+    // NEW: RETENTION TYPES
+    // ============================================================
+    public static final String TYPE_RETENTION_WARNING = "RETENTION_WARNING";
+    public static final String TYPE_AUTO_EXPORTED = "AUTO_EXPORTED";
+    public static final String TYPE_DELETION_COMPLETED = "DELETION_COMPLETED";
 
     // ============================================================
     // SEVERITY LEVELS

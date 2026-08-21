@@ -18,15 +18,27 @@ import com.itextpdf.layout.properties.UnitValue;
 import com.itextpdf.io.font.PdfEncodings;
 
 import com.security.alarm.entity.AlertLog;
+import com.security.alarm.entity.Company;
 import com.security.alarm.entity.AlarmSystem;
 import com.security.alarm.entity.AlarmZone;
+import com.security.alarm.entity.ReportLog;
+import com.security.alarm.entity.ReportAlertMapping;
+import com.security.alarm.entity.AlertAuditLog;
+import com.security.alarm.repository.AlertLogRepository;
 import com.security.alarm.repository.AlarmZoneRepository;
+import com.security.alarm.repository.ReportLogRepository;
+import com.security.alarm.repository.ReportAlertMappingRepository;
+import com.security.alarm.repository.AlertAuditLogRepository;
 
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.poi.ss.util.CellRangeAddress;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.time.LocalDateTime;
@@ -37,7 +49,13 @@ import java.util.stream.Collectors;
 @Service
 public class ReportService {
 
+    private static final Logger logger = LoggerFactory.getLogger(ReportService.class);
+
     private final AlarmZoneRepository alarmZoneRepository;
+    private final AlertLogRepository alertLogRepository;
+    private final ReportLogRepository reportLogRepository;
+    private final ReportAlertMappingRepository reportAlertMappingRepository;
+    private final AlertAuditLogRepository alertAuditLogRepository;
 
     private static final DeviceRgb PRIMARY_COLOR = new DeviceRgb(30, 58, 138);
     private static final DeviceRgb ACCENT_COLOR = new DeviceRgb(239, 68, 68);
@@ -45,8 +63,16 @@ public class ReportService {
     private static final DeviceRgb WARNING_COLOR = new DeviceRgb(234, 179, 8);
     private static final DeviceRgb HEADER_BG = new DeviceRgb(241, 245, 249);
 
-    public ReportService(AlarmZoneRepository alarmZoneRepository) {
+    public ReportService(AlarmZoneRepository alarmZoneRepository,
+                         AlertLogRepository alertLogRepository,
+                         ReportLogRepository reportLogRepository,
+                         ReportAlertMappingRepository reportAlertMappingRepository,
+                         AlertAuditLogRepository alertAuditLogRepository) {
         this.alarmZoneRepository = alarmZoneRepository;
+        this.alertLogRepository = alertLogRepository;
+        this.reportLogRepository = reportLogRepository;
+        this.reportAlertMappingRepository = reportAlertMappingRepository;
+        this.alertAuditLogRepository = alertAuditLogRepository;
     }
 
     // ============================================================
@@ -72,7 +98,7 @@ public class ReportService {
         Map<String, Long> bySystem = alerts.stream()
             .filter(a -> a.getAlarmSystem() != null)
             .collect(Collectors.groupingBy(
-                a -> a.getAlarmSystem().getSystemCode(),
+                a -> a.getAlarmSystem() != null ? a.getAlarmSystem().getSystemCode() : "UNKNOWN",
                 Collectors.counting()
             ));
         summary.put("bySystem", bySystem);
@@ -620,5 +646,85 @@ public class ReportService {
 
     public List<Map<String, Object>> generateUserPerformance(LocalDateTime from, LocalDateTime to) {
         return new ArrayList<>();
+    }
+
+    // ============================================================
+    // MARK ALERTS AS EXPORTED - FIXED VERSION
+    // ============================================================
+
+    @Transactional
+    public ReportLog markAlertsAsExported(List<Long> alertIds, String username, String reportType, 
+                                          LocalDateTime from, LocalDateTime to) {
+        try {
+            String reportId = "RPT-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+            
+            // Get alerts to mark
+            List<AlertLog> alerts = alertLogRepository.findAllById(alertIds);
+            
+            if (alerts.isEmpty()) {
+                throw new IllegalArgumentException("No alerts found to mark as exported");
+            }
+            
+            // Create report log
+            ReportLog reportLog = new ReportLog();
+            reportLog.setReportId(reportId);
+            reportLog.setGeneratedBy(username);
+            reportLog.setGeneratedAt(LocalDateTime.now());
+            reportLog.setReportType(reportType);
+            reportLog.setDateFrom(from != null ? from.toLocalDate() : null);
+            reportLog.setDateTo(to != null ? to.toLocalDate() : null);
+            reportLog.setTotalAlerts(alerts.size());
+            reportLog.setStatus("ACTIVE");
+            
+            // Set company ID if available
+            Company company = null;
+            if (!alerts.isEmpty() && alerts.get(0).getAlarmSystem() != null) {
+                company = alerts.get(0).getAlarmSystem().getCompany();
+                if (company != null) {
+                    reportLog.setCompanyId(company.getId());
+                }
+            }
+            
+            reportLog = reportLogRepository.save(reportLog);
+            
+            // Mark alerts as exported
+            LocalDateTime now = LocalDateTime.now();
+            for (AlertLog alert : alerts) {
+                alert.setIsExported(true);
+                alert.setExportedAt(now);
+                alert.setExportedBy(username);
+                alert.setReportId(reportId);
+                alertLogRepository.save(alert);
+                
+                // Create mapping
+                ReportAlertMapping mapping = new ReportAlertMapping();
+                mapping.setReportId(reportId);
+                mapping.setAlertId(alert.getId());
+                reportAlertMappingRepository.save(mapping);
+            }
+            
+            // Audit log
+            AlertAuditLog auditLog = new AlertAuditLog();
+            auditLog.setAction("EXPORTED");
+            auditLog.setPerformedBy(username);
+            auditLog.setDetails("Exported " + alerts.size() + " alerts in report: " + reportId);
+            auditLog.setSystemAction(false);
+            auditLog.setAlertCount(alerts.size());
+            auditLog.setReportId(reportId);
+            
+            if (company != null) {
+                auditLog.setCompanyId(company.getId());
+            }
+            
+            alertAuditLogRepository.save(auditLog);
+            
+            logger.info("✅ Marked {} alerts as exported in report: {}", alerts.size(), reportId);
+            
+            return reportLog;
+            
+        } catch (Exception e) {
+            logger.error("Failed to mark alerts as exported: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to mark alerts as exported", e);
+        }
     }
 }

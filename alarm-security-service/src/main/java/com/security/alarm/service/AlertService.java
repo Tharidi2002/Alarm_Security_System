@@ -122,7 +122,7 @@ public class AlertService {
             system.setSirenStatus("OFF");
             alarmSystemRepository.save(system);
             
-            alertLog.setStatus("SIREN_STOP");  // ← PENDING වෙනුවට SIREN_STOP
+            alertLog.setStatus("SIREN_STOP");
             alertLog.setAlertType("SIREN_STOP");
             alertLog.setRawMessage(smsContent);
             alertLog.setZoneNumber(0);
@@ -320,6 +320,7 @@ public class AlertService {
             return alertLogRepository.save(alertLog);
         }
     }
+    
     // ============================================================
     // RESOLVE ALL PENDING ALERTS + SIREN OFF
     // ============================================================
@@ -427,7 +428,7 @@ public class AlertService {
     }
 
     // ============================================================
-    // FIND SYSTEM - WITH ACTIVE CHECK (NEW)
+    // FIND SYSTEM - WITH ACTIVE CHECK (NEW) - FIXED NULL SAFETY
     // ============================================================
     private Optional<AlarmSystem> findSystem(String atmCode, String simNumber) {
         Optional<AlarmSystem> machineOpt = Optional.empty();
@@ -472,7 +473,7 @@ public class AlertService {
     }
 
     // ============================================================
-    // GET ZONE NAMES
+    // GET ZONE NAMES - FIXED NULL SAFETY
     // ============================================================
     private String getZoneNames(Long systemId, String zoneNumbers) {
         if (zoneNumbers == null || zoneNumbers.isEmpty() || zoneNumbers.equals("00")) {
@@ -535,7 +536,7 @@ public class AlertService {
     }
 
     // ============================================================
-    // GET ALL ALERTS
+    // GET ALL ALERTS - FIXED NULL SAFETY
     // ============================================================
     public List<AlertLog> getAllAlerts(String username) {
         try {
@@ -546,7 +547,8 @@ public class AlertService {
                 if (userOpt.isPresent() && "USER".equalsIgnoreCase(userOpt.get().getRole())) {
                     List<UserSystem> userSystems = userSystemRepository.findAllByUserId(userOpt.get().getId());
                     List<Long> systemIds = userSystems.stream()
-                        .map(UserSystem::getSystemId)
+                        .map(userSystem -> userSystem != null ? userSystem.getSystemId() : null)
+                        .filter(id -> id != null)
                         .collect(Collectors.toList());
                     
                     if (systemIds.isEmpty()) {
@@ -845,8 +847,9 @@ public class AlertService {
             // Get all systems in this company
             List<AlarmSystem> systems = alarmSystemRepository.findByCompanyId(companyId);
             List<Long> systemIds = systems.stream()
-                .map(AlarmSystem::getId)
-                .collect(java.util.stream.Collectors.toList());
+                .map(system -> system != null ? system.getId() : null)
+                .filter(id -> id != null)
+                .collect(Collectors.toList());
             
             if (systemIds.isEmpty()) {
                 return new ArrayList<>();

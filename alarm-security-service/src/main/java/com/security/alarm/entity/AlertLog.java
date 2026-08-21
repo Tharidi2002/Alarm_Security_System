@@ -56,4 +56,32 @@ public class AlertLog {
     // ===== NEW: Zone Names (Not stored in DB, computed at runtime) =====
     @Transient
     private String zoneNames;
+
+    // ===== NEW: RETENTION FIELDS =====
+    @Column(name = "is_exported")
+    private Boolean isExported = false;
+
+    @Column(name = "exported_at")
+    private LocalDateTime exportedAt;
+
+    @Column(name = "exported_by")
+    private String exportedBy;
+
+    @Column(name = "report_id")
+    private String reportId;
+
+    @Column(name = "deletion_pending")
+    private Boolean deletionPending = false;
+
+    @Column(name = "deletion_pending_at")
+    private LocalDateTime deletionPendingAt;
+
+    @Column(name = "scheduled_delete_at")
+    private LocalDateTime scheduledDeleteAt;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
+    @Column(name = "retention_status")
+    private String retentionStatus = "ACTIVE"; // ACTIVE, PENDING_DELETE, DELETED
 }

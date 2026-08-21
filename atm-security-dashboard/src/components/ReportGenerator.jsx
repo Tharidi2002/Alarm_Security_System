@@ -290,22 +290,43 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
         throw new Error(errorText || 'Failed to download report');
       }
 
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
 
-      setSuccess(`✅ ${type.toUpperCase()} downloaded successfully!`);
-      setTimeout(() => setSuccess(''), 3000);
+        // ============================================================
+        // NEW: Mark alerts as exported after download
+        // ============================================================
+        try {
+            // Get alert IDs from the report data
+            const alertIds = detailedData.map(a => a.id);
+            if (alertIds.length > 0) {
+                await markAlertsAsExported(
+                    alertIds,
+                    type.toUpperCase(),
+                    fromDate,
+                    toDate,
+                    user?.username
+                );
+                console.log(`✅ ${alertIds.length} alerts marked as exported`);
+            }
+        } catch (markError) {
+            console.error('Failed to mark alerts as exported:', markError);
+            // Don't show error to user - report was already downloaded
+        }
+
+        setSuccess(`✅ ${type.toUpperCase()} downloaded successfully! Alerts marked for retention.`);
+        setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to download report');
+        setError(err.message || 'Failed to download report');
     } finally {
-      setDownloading(false);
+        setDownloading(false);
     }
   };
 
