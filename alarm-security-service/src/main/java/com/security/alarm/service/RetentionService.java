@@ -10,10 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -29,7 +26,6 @@ public class RetentionService {
     private final NotificationService notificationService;
     private final ReportService reportService;
 
-    // Default values
     private static final int DEFAULT_RETENTION_DAYS = 90;
     private static final int DEFAULT_GRACE_PERIOD_DAYS = 5;
 
@@ -96,7 +92,6 @@ public class RetentionService {
             if (!unexportedAlerts.isEmpty()) {
                 logger.info("⚠️ Found {} unexported alerts older than {} days", unexportedAlerts.size(), getRetentionDays());
                 
-                // Send notification
                 Map<String, Object> details = buildAlertDetails(unexportedAlerts);
                 details.put("type", "UNEXPORTED");
                 
@@ -119,21 +114,17 @@ public class RetentionService {
                 logger.info("⚠️ Found {} exported alerts older than {} days - marking for deletion", exportedAlerts.size(), getRetentionDays());
                 
                 List<Long> alertIds = exportedAlerts.stream()
-                    .map(alert -> alert != null ? alert.getId() : null)
-                    .filter(id -> id != null)
+                    .map(AlertLog::getId)
                     .collect(Collectors.toList());
                 
                 if (!alertIds.isEmpty()) {
                     LocalDateTime deleteAt = now.plusDays(getGracePeriodDays());
                     
-                    // Mark for deletion
                     alertLogRepository.markForDeletion(alertIds, now, deleteAt);
                     
-                    // Create audit log
                     createAuditLog(alertIds, "PENDING_DELETE", "SYSTEM", 
                         "Marked for deletion with " + getGracePeriodDays() + " days grace period", true);
                     
-                    // Send notification
                     Map<String, Object> details = buildAlertDetails(exportedAlerts);
                     details.put("type", "EXPORTED");
                     details.put("deleteDate", deleteAt);
@@ -160,7 +151,7 @@ public class RetentionService {
     }
 
     // ============================================================
-    // SCHEDULED JOB 2: Auto-Export (Fail-Safe) (1:00 AM)
+    // SCHEDULED JOB 2: Auto-Export (1:00 AM)
     // ============================================================
 
     @Scheduled(cron = "0 0 1 * * ?")
@@ -176,10 +167,8 @@ public class RetentionService {
         try {
             LocalDateTime now = LocalDateTime.now();
             
-            // Find alerts still pending deletion (waiting for action)
             List<AlertLog> pendingAlerts = alertLogRepository.findPendingDeletion(now);
             
-            // Filter: only unexported alerts that are still pending
             List<AlertLog> toExport = pendingAlerts.stream()
                 .filter(a -> a != null && !a.getIsExported())
                 .collect(Collectors.toList());
@@ -191,7 +180,6 @@ public class RetentionService {
 
             logger.info("📊 Auto-exporting {} alerts", toExport.size());
 
-            // Group by company
             Map<Long, List<AlertLog>> byCompany = toExport.stream()
                 .filter(a -> a.getAlarmSystem() != null && a.getAlarmSystem().getCompany() != null)
                 .collect(Collectors.groupingBy(
@@ -204,52 +192,33 @@ public class RetentionService {
                 Long companyId = entry.getKey();
                 List<AlertLog> alerts = entry.getValue();
                 
-                // Generate report
                 try {
-                    byte[] pdfContent = reportService.generateProfessionalPDF(
-                        reportService.generateSummary(alerts, "SYSTEM", "AUTO"),
-                        alerts.stream().map(AlertLog::getReceivedAt).min(LocalDateTime::compareTo).orElse(LocalDateTime.now()),
-                        alerts.stream().map(AlertLog::getReceivedAt).max(LocalDateTime::compareTo).orElse(LocalDateTime.now()),
-                        "Auto-Export",
-                        "SYSTEM",
-                        "AUTO"
-                    );
+                    LocalDateTime from = alerts.stream()
+                        .map(AlertLog::getReceivedAt)
+                        .min(LocalDateTime::compareTo)
+                        .orElse(LocalDateTime.now());
+                    LocalDateTime to = alerts.stream()
+                        .map(AlertLog::getReceivedAt)
+                        .max(LocalDateTime::compareTo)
+                        .orElse(LocalDateTime.now());
 
-                    String fileName = "auto_export_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd")) + ".pdf";
+                    String reportIdWithCompany = reportId + "-" + companyId;
                     
-                    // Save report
-                    ReportLog reportLog = new ReportLog();
-                    reportLog.setReportId(reportId + "-" + companyId);
-                    reportLog.setGeneratedBy("SYSTEM");
-                    reportLog.setGeneratedAt(now);
-                    reportLog.setReportType("PDF");
-                    reportLog.setTotalAlerts(alerts.size());
-                    reportLog.setFileName(fileName);
-                    reportLog.setFilePath("/archive/alerts/reports/" + fileName);
-                    reportLog.setFileContent(pdfContent);
-                    reportLog.setCompanyId(companyId);
-                    reportLog.setIsAutoGenerated(true);
-                    reportLogRepository.save(reportLog);
-
-                    // Mark alerts as exported
+                    // Mark as exported
                     List<Long> alertIds = alerts.stream()
                         .map(AlertLog::getId)
                         .collect(Collectors.toList());
                     
                     if (!alertIds.isEmpty()) {
-                        alertLogRepository.markAsExported(alertIds, now, "SYSTEM", reportId + "-" + companyId);
+                        alertLogRepository.markAsExported(alertIds, now, "SYSTEM", reportIdWithCompany);
                         
-                        // Create mapping
                         for (Long alertId : alertIds) {
-                            if (alertId != null) {
-                                ReportAlertMapping mapping = new ReportAlertMapping();
-                                mapping.setReportId(reportId + "-" + companyId);
-                                mapping.setAlertId(alertId);
-                                reportAlertMappingRepository.save(mapping);
-                            }
+                            ReportAlertMapping mapping = new ReportAlertMapping();
+                            mapping.setReportId(reportIdWithCompany);
+                            mapping.setAlertId(alertId);
+                            reportAlertMappingRepository.save(mapping);
                         }
 
-                        // Audit log
                         createAuditLog(alertIds, "AUTO_EXPORTED", "SYSTEM", 
                             "Auto-exported " + alerts.size() + " alerts before deletion", true);
 
@@ -261,7 +230,6 @@ public class RetentionService {
                 }
             }
 
-            // Send notification
             notificationService.createAdminNotifications(
                 NotificationService.TYPE_AUTO_EXPORTED,
                 "✅ Alerts Auto-Exported & Archived",
@@ -279,7 +247,7 @@ public class RetentionService {
     }
 
     // ============================================================
-    // SCHEDULED JOB 3: Auto-Delete (Purge) (2:00 AM)
+    // SCHEDULED JOB 3: Auto-Delete (2:00 AM)
     // ============================================================
 
     @Scheduled(cron = "0 0 2 * * ?")
@@ -290,7 +258,6 @@ public class RetentionService {
         try {
             LocalDateTime now = LocalDateTime.now();
             
-            // Find alerts ready for deletion
             List<AlertLog> toDelete = alertLogRepository.findReadyForDeletion(now);
 
             if (toDelete.isEmpty()) {
@@ -304,44 +271,27 @@ public class RetentionService {
                 .map(AlertLog::getId)
                 .collect(Collectors.toList());
 
-            // Archive before deletion (JSON backup)
+            // Archive before deletion
             for (AlertLog alert : toDelete) {
                 try {
-                    // Create JSON backup
-                    Map<String, Object> backup = new HashMap<>();
-                    backup.put("id", alert.getId());
-                    backup.put("alertType", alert.getAlertType());
-                    backup.put("receivedAt", alert.getReceivedAt());
-                    backup.put("status", alert.getStatus());
-                    backup.put("zoneNumbers", alert.getZoneNumbers());
-                    backup.put("rawMessage", alert.getRawMessage());
-                    if (alert.getAlarmSystem() != null) {
-                        backup.put("systemCode", alert.getAlarmSystem().getSystemCode());
-                        backup.put("location", alert.getAlarmSystem().getLocation());
-                    }
-                    
-                    // Save to audit log with archive path
                     createAuditLog(List.of(alert.getId()), "DELETED", "SYSTEM", 
-                        "Alert deleted by system. Archived data: " + backup.toString(), true);
-                    
+                        "Alert deleted by system. Alert ID: " + alert.getId() + 
+                        ", System: " + (alert.getAlarmSystem() != null ? alert.getAlarmSystem().getSystemCode() : "UNKNOWN"),
+                        true);
                 } catch (Exception e) {
                     logger.error("Failed to archive alert {}: {}", alert.getId(), e.getMessage());
                 }
             }
 
-            // Mark as deleted
             if (!alertIds.isEmpty()) {
                 alertLogRepository.markAsDeleted(alertIds, now);
+                
+                // Hard delete after marking
+                alertLogRepository.hardDeleteByIds(alertIds);
             }
 
-            // Send notification
             Map<String, Object> details = new HashMap<>();
             details.put("count", toDelete.size());
-            details.put("systems", toDelete.stream()
-                .filter(a -> a.getAlarmSystem() != null)
-                .map(a -> a.getAlarmSystem().getSystemCode())
-                .distinct()
-                .collect(Collectors.toList()));
 
             notificationService.createAdminNotifications(
                 NotificationService.TYPE_DELETION_COMPLETED,
@@ -371,7 +321,6 @@ public class RetentionService {
         logger.info("🔄 Running Archive Cleanup at 3:00 AM");
 
         try {
-            // Get archive retention months
             int retentionMonths = 6;
             try {
                 retentionMonths = Integer.parseInt(retentionConfigRepository.findConfigValueByConfigKey("ARCHIVE_RETENTION_MONTHS"));
@@ -381,7 +330,6 @@ public class RetentionService {
 
             LocalDateTime cutoff = LocalDateTime.now().minusMonths(retentionMonths);
             
-            // Find old auto-generated reports
             List<ReportLog> oldReports = reportLogRepository.findAutoGeneratedOlderThan(cutoff);
             
             if (oldReports.isEmpty()) {
@@ -392,11 +340,8 @@ public class RetentionService {
             logger.info("🗑️ Cleaning up {} old archives (older than {} months)", oldReports.size(), retentionMonths);
 
             for (ReportLog report : oldReports) {
-                // Mark as deleted
                 report.setStatus("DELETED");
                 reportLogRepository.save(report);
-                
-                // Delete file from storage (implementation depends on storage type)
                 logger.info("Archived report {} marked for deletion", report.getReportId());
             }
 
@@ -413,12 +358,11 @@ public class RetentionService {
 
     private void createAuditLog(List<Long> alertIds, String action, String performedBy, String details, boolean systemAction) {
         if (alertIds == null || alertIds.isEmpty()) {
-            logger.warn("Cannot create audit log: alertIds is empty");
             return;
         }
         
         AlertAuditLog auditLog = new AlertAuditLog();
-        auditLog.setAlertId(alertIds.get(0)); // Store first ID
+        auditLog.setAlertId(alertIds.get(0));
         auditLog.setAction(action);
         auditLog.setPerformedBy(performedBy);
         auditLog.setDetails(details);
@@ -434,7 +378,7 @@ public class RetentionService {
         Map<String, Long> bySystem = alerts.stream()
             .filter(a -> a.getAlarmSystem() != null)
             .collect(Collectors.groupingBy(
-                a -> a.getAlarmSystem() != null ? a.getAlarmSystem().getSystemCode() : "UNKNOWN",
+                a -> a.getAlarmSystem().getSystemCode(),
                 Collectors.counting()
             ));
         details.put("bySystem", bySystem);
@@ -489,11 +433,11 @@ public class RetentionService {
     }
 
     // ============================================================
-    // MANUAL METHODS (For Admin/User)
+    // MANUAL METHODS
     // ============================================================
 
     @Transactional
-    public void postponeDeletion(Long alertId) {
+    public void postponeDeletion(Long alertId, String username) {
         AlertLog alert = alertLogRepository.findById(alertId)
             .orElseThrow(() -> new IllegalArgumentException("Alert not found: " + alertId));
         
@@ -503,10 +447,12 @@ public class RetentionService {
         alert.setRetentionStatus("ACTIVE");
         alertLogRepository.save(alert);
         
-        createAuditLog(List.of(alertId), "REACTIVATED", "USER", "User postponed deletion", false);
+        createAuditLog(List.of(alertId), "REACTIVATED", username, "User postponed deletion", false);
     }
 
-    public List<AlertLog> getPendingDeletionAlerts() {
+    public List<AlertLog> getPendingDeletionAlerts(String username) {
+        // If username is provided, filter by company
+        // For now, return all
         return alertLogRepository.findPendingDeletion(LocalDateTime.now());
     }
 

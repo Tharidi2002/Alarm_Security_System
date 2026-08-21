@@ -16,13 +16,9 @@ public interface AlertLogRepository extends JpaRepository<AlertLog, Long> {
     // EXISTING QUERIES
     // ============================================================
     List<AlertLog> findAllByOrderByReceivedAtDesc();
-    
     List<AlertLog> findAllByAlarmSystemIdInOrderByReceivedAtDesc(List<Long> systemIds);
-    
     List<AlertLog> findByAlarmSystemIdAndStatusOrderByReceivedAtDesc(Long systemId, String status);
-    
     long countByAlarmSystemIdAndStatus(Long systemId, String status);
-    
     long countByStatus(String status);
     
     @Query("SELECT COUNT(a) FROM AlertLog a WHERE a.status = 'RESOLVED'")
@@ -32,9 +28,7 @@ public interface AlertLogRepository extends JpaRepository<AlertLog, Long> {
     AlertLog findByIdWithSystem(@Param("id") Long id);
     
     List<AlertLog> findByReceivedAtBetween(LocalDateTime from, LocalDateTime to);
-    
     List<AlertLog> findByAlarmSystemIdInAndReceivedAtBetween(List<Long> systemIds, LocalDateTime from, LocalDateTime to);
-    
     List<AlertLog> findByAlarmSystemId(Long systemId);
     
     @Modifying
@@ -43,10 +37,6 @@ public interface AlertLogRepository extends JpaRepository<AlertLog, Long> {
     void deleteByAlarmSystemId(@Param("systemId") Long systemId);
     
     List<AlertLog> findByAlarmSystemIdOrderByReceivedAtDesc(Long systemId);
-    
-    // ============================================================
-    // FIXED: COMPANY QUERIES - Use @Query with JOIN
-    // ============================================================
     
     @Query("SELECT a FROM AlertLog a WHERE a.alarmSystem.company.id = :companyId ORDER BY a.receivedAt DESC")
     List<AlertLog> findByCompanyId(@Param("companyId") Long companyId);
@@ -57,10 +47,6 @@ public interface AlertLogRepository extends JpaRepository<AlertLog, Long> {
     @Query("SELECT COUNT(a) FROM AlertLog a WHERE a.alarmSystem.company.id = :companyId AND a.status = 'PENDING'")
     long countPendingByCompanyId(@Param("companyId") Long companyId);
 
-    // ============================================================
-    // ACTIVE ALERTS (Exclude REJECTED)
-    // ============================================================
-    
     @Query("SELECT a FROM AlertLog a WHERE a.status != 'REJECTED' ORDER BY a.receivedAt DESC")
     List<AlertLog> findAllActiveAlerts();
     
@@ -86,7 +72,7 @@ public interface AlertLogRepository extends JpaRepository<AlertLog, Long> {
     long countPendingByCompanyIdActive(@Param("companyId") Long companyId);
 
     // ============================================================
-    // RETENTION QUERIES
+    // NEW: RETENTION QUERIES
     // ============================================================
     
     @Query("SELECT a FROM AlertLog a WHERE a.isExported = false AND a.receivedAt < :cutoff AND a.retentionStatus = 'ACTIVE'")

@@ -1,6 +1,7 @@
 package com.security.alarm.controller;
 
 import com.security.alarm.entity.AlertLog;
+import com.security.alarm.entity.ReportLog;
 import com.security.alarm.entity.User;
 import com.security.alarm.entity.UserSystem;
 import com.security.alarm.entity.AlarmSystem;
@@ -10,6 +11,7 @@ import com.security.alarm.repository.UserRepository;
 import com.security.alarm.repository.UserSystemRepository;
 import com.security.alarm.service.ReportService;
 import com.security.alarm.service.PermissionService;
+import com.security.alarm.service.ReportService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -18,14 +20,11 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api/reports")
-@CrossOrigin(origins = "*", allowedHeaders = "*", methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.OPTIONS})
+@CrossOrigin(origins = "*", allowedHeaders = "*")
 public class ReportController {
 
     private final ReportService reportService;
@@ -348,6 +347,60 @@ public class ReportController {
             return date.atStartOfDay();
         } catch (Exception e) {
             return LocalDateTime.now().minusDays(30);
+        }
+    }
+
+    // ============================================================
+    // MARK ALERTS AS EXPORTED
+    // ============================================================
+    
+    @PostMapping("/mark-exported")
+    public ResponseEntity<?> markAlertsAsExported(@RequestBody Map<String, Object> request) {
+        try {
+            @SuppressWarnings("unchecked")
+            List<Integer> alertIdsInt = (List<Integer>) request.get("alertIds");
+            List<Long> alertIds = alertIdsInt.stream().map(Long::valueOf).toList();
+            
+            String reportType = (String) request.get("reportType");
+            String username = (String) request.get("username");
+            String fromDateStr = (String) request.get("fromDate");
+            String toDateStr = (String) request.get("toDate");
+            
+            if (alertIds == null || alertIds.isEmpty()) {
+                return ResponseEntity.badRequest().body("alertIds is required");
+            }
+            
+            if (username == null || username.isEmpty()) {
+                return ResponseEntity.badRequest().body("username is required");
+            }
+            
+            LocalDateTime from = null;
+            LocalDateTime to = null;
+            
+            if (fromDateStr != null && !fromDateStr.isEmpty()) {
+                from = LocalDate.parse(fromDateStr).atStartOfDay();
+            }
+            if (toDateStr != null && !toDateStr.isEmpty()) {
+                to = LocalDate.parse(toDateStr).atTime(23, 59, 59);
+            }
+            
+            ReportLog reportLog = reportService.markAlertsAsExported(
+                alertIds, username, reportType != null ? reportType : "PDF", from, to
+            );
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", alertIds.size() + " alerts marked as exported");
+            response.put("reportId", reportLog.getReportId());
+            response.put("report", reportLog);
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
         }
     }
 }

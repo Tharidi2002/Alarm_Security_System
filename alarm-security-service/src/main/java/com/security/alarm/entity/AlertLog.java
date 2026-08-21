@@ -53,11 +53,14 @@ public class AlertLog {
     @Column(name = "resolved_from_ip")
     private String resolvedFromIp;
 
-    // ===== NEW: Zone Names (Not stored in DB, computed at runtime) =====
+    // ===== Zone Names (Transient) =====
     @Transient
     private String zoneNames;
 
-    // ===== NEW: RETENTION FIELDS =====
+    // ============================================================
+    // NEW: RETENTION FIELDS
+    // ============================================================
+    
     @Column(name = "is_exported")
     private Boolean isExported = false;
 
