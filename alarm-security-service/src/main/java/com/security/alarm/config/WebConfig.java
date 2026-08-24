@@ -15,25 +15,21 @@ public class WebConfig {
         CorsConfiguration config = new CorsConfiguration();
         
         // ============================================================
-        // LOCAL DEVELOPMENT - Allow all for testing
+        // Allow all for development
         // ============================================================
-        config.setAllowedOrigins(Arrays.asList("*"));
         config.setAllowedOriginPatterns(Arrays.asList("*"));
         config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         config.setAllowedHeaders(Arrays.asList("*"));
-        config.setAllowCredentials(false);
+        config.setAllowCredentials(true);  // ← true කරන්න
         config.setMaxAge(3600L);
         
         // ============================================================
-        // PRODUCTION - Uncomment for production
+        // Specific origins for production
         // ============================================================
         // config.setAllowedOrigins(Arrays.asList(
-        //     "https://alarm-security-system-java.vercel.app",
-        //     "https://alarm-security-system-jawa.vercel.app"
-        // ));
-        // config.setAllowedOriginPatterns(Arrays.asList(
-        //     "https://alarm-security-system-java.vercel.app",
-        //     "https://alarm-security-system-jawa.vercel.app"
+        //     "http://localhost:5173",
+        //     "http://localhost:3000",
+        //     "https://your-domain.com"
         // ));
         
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

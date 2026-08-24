@@ -10,6 +10,8 @@ import com.security.alarm.repository.UserRepository;
 import com.security.alarm.repository.UserSystemRepository;
 import com.security.alarm.service.ReportService;
 import com.security.alarm.service.PermissionService;
+import com.security.alarm.repository.AlarmZoneRepository;
+
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -34,25 +36,27 @@ public class ReportController {
     private final AlarmSystemRepository alarmSystemRepository;
     private final AlertLogRepository alertLogRepository;
     private final PermissionService permissionService;
+    private final AlarmZoneRepository alarmZoneRepository;
 
     public ReportController(ReportService reportService,
                             UserRepository userRepository,
                             UserSystemRepository userSystemRepository,
                             AlarmSystemRepository alarmSystemRepository,
                             AlertLogRepository alertLogRepository,
-                            PermissionService permissionService) {
+                            PermissionService permissionService,
+                            AlarmZoneRepository alarmZoneRepository) {
         this.reportService = reportService;
         this.userRepository = userRepository;
         this.userSystemRepository = userSystemRepository;
         this.alarmSystemRepository = alarmSystemRepository;
         this.alertLogRepository = alertLogRepository;
         this.permissionService = permissionService;
+        this.alarmZoneRepository = alarmZoneRepository;
     }
 
     // ============================================================
-    // 1. SUMMARY REPORT - COMPANY-BASED
+    // 1. SUMMARY REPORT
     // ============================================================
-    
     @GetMapping("/summary")
     public ResponseEntity<?> getSummary(
             @RequestParam(required = false) String from,
@@ -78,9 +82,8 @@ public class ReportController {
     }
 
     // ============================================================
-    // 2. DETAILED REPORT - COMPANY-BASED
+    // 2. DETAILED REPORT
     // ============================================================
-    
     @GetMapping("/detailed")
     public ResponseEntity<?> getDetailed(
             @RequestParam(required = false) String from,
@@ -104,9 +107,8 @@ public class ReportController {
     }
 
     // ============================================================
-    // 3. SYSTEM HEALTH - COMPANY-BASED
+    // 3. SYSTEM HEALTH
     // ============================================================
-    
     @GetMapping("/health")
     public ResponseEntity<?> getSystemHealth(@RequestParam(required = false) String username) {
         List<AlarmSystem> systems;
@@ -114,7 +116,6 @@ public class ReportController {
         if (username != null && !username.trim().isEmpty()) {
             Optional<User> userOpt = userRepository.findByUsername(username);
             if (userOpt.isPresent() && "USER".equalsIgnoreCase(userOpt.get().getRole())) {
-                // USER - get only their company systems
                 Long companyId = userOpt.get().getCompany() != null ? 
                     userOpt.get().getCompany().getId() : null;
                 if (companyId != null) {
@@ -123,7 +124,6 @@ public class ReportController {
                     systems = new ArrayList<>();
                 }
             } else {
-                // Admin - all systems
                 systems = alarmSystemRepository.findAll();
             }
         } else {
@@ -135,9 +135,8 @@ public class ReportController {
     }
 
     // ============================================================
-    // 4. USER PERFORMANCE - COMPANY-BASED
+    // 4. USER PERFORMANCE
     // ============================================================
-    
     @GetMapping("/performance")
     public ResponseEntity<?> getUserPerformance(
             @RequestParam(required = false) String from,
@@ -177,9 +176,8 @@ public class ReportController {
     }
 
     // ============================================================
-    // 5. EXPORT PDF - COMPANY-BASED
+    // 5. EXPORT PDF
     // ============================================================
-    
     @GetMapping("/export/pdf")
     public ResponseEntity<byte[]> exportPDF(
             @RequestParam(required = false) String from,
@@ -222,9 +220,8 @@ public class ReportController {
     }
 
     // ============================================================
-    // 6. EXPORT EXCEL - COMPANY-BASED
+    // 6. EXPORT EXCEL
     // ============================================================
-    
     @GetMapping("/export/excel")
     public ResponseEntity<byte[]> exportExcel(
             @RequestParam(required = false) String from,
@@ -263,9 +260,8 @@ public class ReportController {
     }
 
     // ============================================================
-    // 7. GET SYSTEMS LIST - COMPANY-BASED
+    // 7. GET SYSTEMS LIST
     // ============================================================
-    
     @GetMapping("/systems")
     public ResponseEntity<?> getSystems(@RequestParam(required = false) String username) {
         List<AlarmSystem> systems;
@@ -273,7 +269,6 @@ public class ReportController {
         if (username != null && !username.trim().isEmpty()) {
             Optional<User> userOpt = userRepository.findByUsername(username);
             if (userOpt.isPresent() && "USER".equalsIgnoreCase(userOpt.get().getRole())) {
-                // USER - get only their company systems
                 Long companyId = userOpt.get().getCompany() != null ? 
                     userOpt.get().getCompany().getId() : null;
                 if (companyId != null) {
@@ -292,7 +287,180 @@ public class ReportController {
     }
 
     // ============================================================
-    // HELPER: Get Alerts - COMPANY-BASED
+    // 8. ALERT LOGS REPORT
+    // ============================================================
+    @GetMapping("/alert-logs")
+    public ResponseEntity<?> getAlertLogsReport(
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) String username,
+            @RequestParam(required = false) String systemCode,
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        
+        try {
+            LocalDateTime fromDate = parseDate(from);
+            LocalDateTime toDate = parseDate(to);
+            
+            List<AlertLog> alerts = getAlertLogsWithFilters(fromDate, toDate, username, systemCode, status);
+            
+            int start = page * size;
+            int end = Math.min(start + size, alerts.size());
+            List<AlertLog> paginatedAlerts = alerts.subList(start, end);
+            
+            for (AlertLog alert : paginatedAlerts) {
+                if (alert.getAlarmSystem() != null && alert.getZoneNumbers() != null) {
+                    String zoneNames = getZoneNames(alert.getAlarmSystem().getId(), alert.getZoneNumbers());
+                    alert.setZoneNames(zoneNames);
+                } else {
+                    alert.setZoneNames("No Zone");
+                }
+            }
+            
+            String role = "ADMIN";
+            if (username != null && !username.trim().isEmpty()) {
+                Optional<User> userOpt = userRepository.findByUsername(username);
+                if (userOpt.isPresent()) {
+                    role = userOpt.get().getRole();
+                }
+            }
+            
+            Map<String, Object> report = reportService.generateAlertLogsReport(
+                paginatedAlerts, fromDate, toDate, username, role
+            );
+            
+            report.put("page", page);
+            report.put("size", size);
+            report.put("totalPages", (int) Math.ceil((double) alerts.size() / size));
+            report.put("totalRecords", alerts.size());
+            
+            return ResponseEntity.ok(report);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
+
+    // ============================================================
+    // 9. ALERT LOGS EXPORT PDF
+    // ============================================================
+    @GetMapping("/alert-logs/export/pdf")
+    public ResponseEntity<byte[]> exportAlertLogsPDF(
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) String username,
+            @RequestParam(required = false) String systemCode,
+            @RequestParam(required = false) String status) {
+        
+        try {
+            LocalDateTime fromDate = parseDate(from);
+            LocalDateTime toDate = parseDate(to);
+            
+            List<AlertLog> alerts = getAlertLogsWithFilters(fromDate, toDate, username, systemCode, status);
+            
+            for (AlertLog alert : alerts) {
+                if (alert.getAlarmSystem() != null && alert.getZoneNumbers() != null) {
+                    String zoneNames = getZoneNames(alert.getAlarmSystem().getId(), alert.getZoneNumbers());
+                    alert.setZoneNames(zoneNames);
+                } else {
+                    alert.setZoneNames("No Zone");
+                }
+            }
+            
+            String role = "ADMIN";
+            if (username != null && !username.trim().isEmpty()) {
+                Optional<User> userOpt = userRepository.findByUsername(username);
+                if (userOpt.isPresent()) {
+                    role = userOpt.get().getRole();
+                }
+            }
+            
+            byte[] pdfBytes = reportService.generateAlertLogsPDF(
+                alerts, fromDate, toDate, 
+                username != null ? username : "System", 
+                role
+            );
+            
+            if (pdfBytes == null || pdfBytes.length == 0) {
+                return ResponseEntity.status(500).build();
+            }
+            
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_PDF);
+            String filename = "Alert_Logs_" + 
+                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + ".pdf";
+            headers.set(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + filename);
+            
+            return ResponseEntity.ok().headers(headers).body(pdfBytes);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).build();
+        }
+    }
+
+    // ============================================================
+    // 10. ALERT LOGS EXPORT EXCEL
+    // ============================================================
+    @GetMapping("/alert-logs/export/excel")
+    public ResponseEntity<byte[]> exportAlertLogsExcel(
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) String username,
+            @RequestParam(required = false) String systemCode,
+            @RequestParam(required = false) String status) {
+        
+        try {
+            LocalDateTime fromDate = parseDate(from);
+            LocalDateTime toDate = parseDate(to);
+            
+            List<AlertLog> alerts = getAlertLogsWithFilters(fromDate, toDate, username, systemCode, status);
+            
+            for (AlertLog alert : alerts) {
+                if (alert.getAlarmSystem() != null && alert.getZoneNumbers() != null) {
+                    String zoneNames = getZoneNames(alert.getAlarmSystem().getId(), alert.getZoneNumbers());
+                    alert.setZoneNames(zoneNames);
+                } else {
+                    alert.setZoneNames("No Zone");
+                }
+            }
+            
+            String role = "ADMIN";
+            if (username != null && !username.trim().isEmpty()) {
+                Optional<User> userOpt = userRepository.findByUsername(username);
+                if (userOpt.isPresent()) {
+                    role = userOpt.get().getRole();
+                }
+            }
+            
+            byte[] excelBytes = reportService.generateAlertLogsExcel(
+                alerts, fromDate, toDate,
+                username != null ? username : "System",
+                role
+            );
+            
+            if (excelBytes == null || excelBytes.length == 0) {
+                return ResponseEntity.status(500).build();
+            }
+            
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
+            String filename = "Alert_Logs_" + 
+                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + ".xlsx";
+            headers.set(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + filename);
+            
+            return ResponseEntity.ok().headers(headers).body(excelBytes);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).build();
+        }
+    }
+
+    // ============================================================
+    // HELPER METHODS
     // ============================================================
     
     private List<AlertLog> getAlerts(LocalDateTime fromDate, LocalDateTime toDate, 
@@ -302,7 +470,6 @@ public class ReportController {
         if (username != null && !username.trim().isEmpty()) {
             Optional<User> userOpt = userRepository.findByUsername(username);
             if (userOpt.isPresent() && "USER".equalsIgnoreCase(userOpt.get().getRole())) {
-                // USER - get only their company alerts
                 Long companyId = userOpt.get().getCompany() != null ? 
                     userOpt.get().getCompany().getId() : null;
                 if (companyId != null) {
@@ -335,10 +502,82 @@ public class ReportController {
         return alerts;
     }
 
-    // ============================================================
-    // HELPER: Parse Date
-    // ============================================================
-    
+    private List<AlertLog> getAlertLogsWithFilters(LocalDateTime fromDate, 
+                                                   LocalDateTime toDate,
+                                                   String username, 
+                                                   String systemCode,
+                                                   String status) {
+        List<AlertLog> alerts;
+        
+        if (username != null && !username.trim().isEmpty()) {
+            Optional<User> userOpt = userRepository.findByUsername(username);
+            if (userOpt.isPresent() && "USER".equalsIgnoreCase(userOpt.get().getRole())) {
+                Long companyId = userOpt.get().getCompany() != null ? 
+                    userOpt.get().getCompany().getId() : null;
+                if (companyId != null) {
+                    List<AlarmSystem> systems = alarmSystemRepository.findByCompanyId(companyId);
+                    List<Long> systemIds = systems.stream()
+                        .map(AlarmSystem::getId)
+                        .collect(java.util.stream.Collectors.toList());
+                    if (!systemIds.isEmpty()) {
+                        alerts = alertLogRepository.findByAlarmSystemIdInAndReceivedAtBetween(
+                            systemIds, fromDate, toDate
+                        );
+                    } else {
+                        alerts = new ArrayList<>();
+                    }
+                } else {
+                    alerts = new ArrayList<>();
+                }
+            } else {
+                alerts = alertLogRepository.findByReceivedAtBetween(fromDate, toDate);
+            }
+        } else {
+            alerts = alertLogRepository.findByReceivedAtBetween(fromDate, toDate);
+        }
+        
+        if (systemCode != null && !systemCode.trim().isEmpty()) {
+            alerts = alerts.stream()
+                .filter(a -> a.getAlarmSystem() != null && 
+                            systemCode.equalsIgnoreCase(a.getAlarmSystem().getSystemCode()))
+                .collect(java.util.stream.Collectors.toList());
+        }
+        
+        if (status != null && !status.trim().isEmpty() && !"ALL".equalsIgnoreCase(status)) {
+            alerts = alerts.stream()
+                .filter(a -> status.equalsIgnoreCase(a.getStatus()))
+                .collect(java.util.stream.Collectors.toList());
+        }
+        
+        return alerts;
+    }
+
+    private String getZoneNames(Long systemId, String zoneNumbers) {
+        if (zoneNumbers == null || zoneNumbers.isEmpty() || zoneNumbers.equals("00")) {
+            return "No Zone";
+        }
+        
+        String[] zoneArray = zoneNumbers.split(",");
+        List<String> zoneNames = new ArrayList<>();
+        
+        for (String zoneStr : zoneArray) {
+            try {
+                int zoneNum = Integer.parseInt(zoneStr.trim());
+                Optional<com.security.alarm.entity.AlarmZone> zoneOpt = 
+                    alarmZoneRepository.findByAlarmSystemIdAndZoneNumber(systemId, zoneNum);
+                if (zoneOpt.isPresent()) {
+                    zoneNames.add(zoneOpt.get().getZoneName());
+                } else {
+                    zoneNames.add("Zone " + zoneStr.trim());
+                }
+            } catch (NumberFormatException e) {
+                zoneNames.add("Zone " + zoneStr.trim());
+            }
+        }
+        
+        return String.join(", ", zoneNames);
+    }
+
     private LocalDateTime parseDate(String dateStr) {
         if (dateStr == null || dateStr.trim().isEmpty()) {
             return LocalDateTime.now().minusDays(30);

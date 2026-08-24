@@ -3,8 +3,12 @@ import PropTypes from 'prop-types';
 import { 
   X, FileText, Download, Printer,
   RefreshCw, AlertCircle, CheckCircle,
-  FileSpreadsheet, Clock, Zap, Calendar
+  FileSpreadsheet, Clock, Zap, Calendar,
+  ChevronLeft, ChevronRight, Search,
+  Filter, ChevronDown
 } from 'lucide-react';
+
+// Remove: import { format } from "date-fns";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 
@@ -14,6 +18,7 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [selectedSystem, setSelectedSystem] = useState('ALL');
+  const [selectedStatus, setSelectedStatus] = useState('ALL');
   const [systems, setSystems] = useState([]);
   const [systemsLoading, setSystemsLoading] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -22,8 +27,16 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
   const [detailedData, setDetailedData] = useState([]);
   const [healthData, setHealthData] = useState(null);
   const [performanceData, setPerformanceData] = useState(null);
+  const [alertLogsData, setAlertLogsData] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  
+  // ===== ALERT LOGS PAGINATION =====
+  const [currentPage, setCurrentPage] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const fromInputRef = useRef(null);
   const toInputRef = useRef(null);
@@ -34,6 +47,48 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  };
+
+  // ===== UPDATE DATES FOR RANGE =====
+  const updateDatesForRange = (range) => {
+    const now = new Date();
+    let from = new Date();
+    let to = new Date();
+
+    switch(range) {
+      case 'today':
+        from = new Date(now);
+        to = new Date(now);
+        break;
+      case 'this_week': {
+        const jsDay = now.getDay();
+        const isoDay = jsDay === 0 ? 7 : jsDay;
+        from = new Date(now);
+        from.setDate(now.getDate() - (isoDay - 1));
+        from.setHours(0, 0, 0, 0);
+        to = new Date(from);
+        to.setDate(from.getDate() + 6);
+        to.setHours(23, 59, 59, 999);
+        break;
+      }
+      case 'this_month':
+        from = new Date(now.getFullYear(), now.getMonth(), 1);
+        to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        break;
+      case 'last_month':
+        from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        to = new Date(now.getFullYear(), now.getMonth(), 0);
+        break;
+      case 'custom':
+        setFromDate('');
+        setToDate('');
+        return;
+      default:
+        break;
+    }
+
+    setFromDate(getLocalDateStr(from));
+    setToDate(getLocalDateStr(to));
   };
 
   // ===== LOAD SYSTEMS =====
@@ -50,7 +105,6 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
         const data = await response.json();
         setSystems(Array.isArray(data) ? data : []);
       } else {
-        console.error('Failed to load systems:', response.statusText);
         setSystems([]);
       }
     } catch (err) {
@@ -60,80 +114,6 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
       setSystemsLoading(false);
     }
   }, [user.role, user.username]);
-
-  // ===== UPDATE DATES FOR RANGE - FIXED =====
-  const updateDatesForRange = (range) => {
-    const now = new Date();
-    let from = new Date();
-    let to = new Date();
-
-    switch(range) {
-      case 'today':
-        // Today - same day
-        from = new Date(now);
-        to = new Date(now);
-        break;
-        
-      case 'this_week':
-        // This Week - ISO week starting Monday to Sunday
-        // getDay(): 0=Sunday .. 6=Saturday, convert so Monday=1..Sunday=7
-        {
-          const jsDay = now.getDay();
-          const isoDay = jsDay === 0 ? 7 : jsDay; // 1..7 where 1=Monday
-          // calculate Monday of this week
-          from = new Date(now);
-          from.setDate(now.getDate() - (isoDay - 1));
-          from.setHours(0, 0, 0, 0);
-
-          to = new Date(from);
-          to.setDate(from.getDate() + 6);
-          to.setHours(23, 59, 59, 999);
-        }
-        break;
-        
-      case 'this_month':
-        // This Month - 1st to last day
-        from = new Date(now.getFullYear(), now.getMonth(), 1);
-        to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-        break;
-        
-      case 'last_month':
-        // Last Month - 1st to last day of previous month
-        from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        to = new Date(now.getFullYear(), now.getMonth(), 0);
-        break;
-        
-      case 'custom':
-        // Clear dates so the date inputs start blank for manual calendar selection
-        setFromDate('');
-        setToDate('');
-        return;
-        
-      default:
-        break;
-    }
-
-    setFromDate(getLocalDateStr(from));
-    setToDate(getLocalDateStr(to));
-  };
-
-  // ===== SET DEFAULT DATES =====
-  const setDefaultDates = () => {
-    updateDatesForRange('this_month');
-  };
-
-  // ===== HANDLE DATE RANGE CHANGE =====
-  const handleDateRangeChange = (range) => {
-    setDateRange(range);
-    updateDatesForRange(range);
-  };
-  
-  // Focus the from input when switching to custom
-  useEffect(() => {
-    if (dateRange === 'custom') {
-      setTimeout(() => fromInputRef.current?.focus(), 50);
-    }
-  }, [dateRange]);
 
   // ===== GENERATE REPORT =====
   const generateReport = useCallback(async () => {
@@ -156,6 +136,15 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
       if (selectedSystem !== 'ALL') {
         params.append('systemCode', selectedSystem);
       }
+      if (selectedStatus !== 'ALL' && reportType === 'alert-logs') {
+        params.append('status', selectedStatus);
+      }
+      
+      // Add pagination for alert logs
+      if (reportType === 'alert-logs') {
+        params.append('page', currentPage);
+        params.append('size', pageSize);
+      }
 
       let endpoint = '';
       let data = null;
@@ -172,6 +161,9 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
           break;
         case 'performance':
           endpoint = `${API_BASE_URL}/reports/performance`;
+          break;
+        case 'alert-logs':
+          endpoint = `${API_BASE_URL}/reports/alert-logs`;
           break;
         default:
           endpoint = `${API_BASE_URL}/reports/summary`;
@@ -191,24 +183,41 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
           setDetailedData([]);
           setHealthData(null);
           setPerformanceData(null);
+          setAlertLogsData(null);
           break;
         case 'detailed':
           setDetailedData(data);
           setSummaryData(null);
           setHealthData(null);
           setPerformanceData(null);
+          setAlertLogsData(null);
           break;
         case 'health':
           setHealthData(data);
           setSummaryData(null);
           setDetailedData([]);
           setPerformanceData(null);
+          setAlertLogsData(null);
           break;
         case 'performance':
           setPerformanceData(data);
           setSummaryData(null);
           setDetailedData([]);
           setHealthData(null);
+          setAlertLogsData(null);
+          break;
+        case 'alert-logs':
+          setAlertLogsData(data);
+          setSummaryData(null);
+          setDetailedData([]);
+          setHealthData(null);
+          setPerformanceData(null);
+          if (data.totalPages !== undefined) {
+            setTotalPages(data.totalPages);
+          }
+          if (data.totalRecords !== undefined) {
+            setTotalRecords(data.totalRecords);
+          }
           break;
         default:
           setSummaryData(data);
@@ -221,38 +230,40 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
     } finally {
       setLoading(false);
     }
-  }, [fromDate, toDate, user.role, user.username, selectedSystem, reportType]);
+  }, [fromDate, toDate, user.role, user.username, selectedSystem, selectedStatus, reportType, currentPage, pageSize]);
 
-  // ===== AUTO-GENERATE ON REPORT TYPE CHANGE =====
-  useEffect(() => {
-    if (isOpen && fromDate && toDate) {
-      generateReport();
-    }
-  }, [reportType, isOpen, fromDate, toDate, selectedSystem, generateReport]);
+  // ===== AUTO-GENERATE ON CHANGE =====
+useEffect(() => {
+  if (isOpen && fromDate && toDate) {
+    generateReport();
+  }
+}, [reportType, isOpen, fromDate, toDate, selectedSystem, selectedStatus, currentPage, generateReport]);
 
   // ===== LOAD ON OPEN =====
   useEffect(() => {
     if (isOpen) {
       setDefaultDates();
       loadSystems();
+      setCurrentPage(0);
+      setSelectedStatus('ALL');
     }
   }, [isOpen, loadSystems]);
 
-  // ===== FORMAT DATE =====
-  const formatDateDisplay = (dateStr) => {
-    if (!dateStr) return '';
-    try {
-      const parts = dateStr.split('-');
-      const d = new Date(parts[0], parts[1] - 1, parts[2]);
-      return d.toLocaleDateString('en-US', { 
-        day: '2-digit', 
-        month: 'short', 
-        year: 'numeric' 
-      });
-    } catch {
-      return dateStr;
-    }
+  const setDefaultDates = () => {
+    updateDatesForRange('this_month');
   };
+
+  const handleDateRangeChange = (range) => {
+    setDateRange(range);
+    updateDatesForRange(range);
+    setCurrentPage(0);
+  };
+  
+  useEffect(() => {
+    if (dateRange === 'custom') {
+      setTimeout(() => fromInputRef.current?.focus(), 50);
+    }
+  }, [dateRange]);
 
   // ===== DOWNLOAD REPORT =====
   const downloadReport = async (type) => {
@@ -270,17 +281,30 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
       if (selectedSystem !== 'ALL') {
         params.append('systemCode', selectedSystem);
       }
-      params.append('reportType', reportType);
+      if (selectedStatus !== 'ALL' && reportType === 'alert-logs') {
+        params.append('status', selectedStatus);
+      }
 
       let endpoint = '';
       let filename = '';
 
-      if (type === 'pdf') {
-        endpoint = `${API_BASE_URL}/reports/export/pdf`;
-        filename = `Alarm_Report_${reportType}_${new Date().toISOString().split('T')[0]}.pdf`;
-      } else if (type === 'excel') {
-        endpoint = `${API_BASE_URL}/reports/export/excel`;
-        filename = `Alarm_Report_${new Date().toISOString().split('T')[0]}.xlsx`;
+      if (reportType === 'alert-logs') {
+        if (type === 'pdf') {
+          endpoint = `${API_BASE_URL}/reports/alert-logs/export/pdf`;
+          filename = `Alert_Logs_${new Date().toISOString().split('T')[0]}.pdf`;
+        } else if (type === 'excel') {
+          endpoint = `${API_BASE_URL}/reports/alert-logs/export/excel`;
+          filename = `Alert_Logs_${new Date().toISOString().split('T')[0]}.xlsx`;
+        }
+      } else {
+        if (type === 'pdf') {
+          endpoint = `${API_BASE_URL}/reports/export/pdf`;
+          filename = `Alarm_Report_${reportType}_${new Date().toISOString().split('T')[0]}.pdf`;
+          params.append('reportType', reportType);
+        } else if (type === 'excel') {
+          endpoint = `${API_BASE_URL}/reports/export/excel`;
+          filename = `Alarm_Report_${new Date().toISOString().split('T')[0]}.xlsx`;
+        }
       }
 
       const response = await fetch(`${endpoint}?${params}`);
@@ -313,11 +337,186 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
     window.print();
   };
 
-  if (!isOpen) return null;
+  // ===== STATUS OPTIONS =====
+  const statusOptions = [
+    { value: 'ALL', label: 'All Statuses' },
+    { value: 'PENDING', label: '🟡 Pending' },
+    { value: 'RESOLVED', label: '✅ Resolved' },
+    { value: 'REJECTED', label: '🚫 Rejected' },
+    { value: 'SIREN_STOP', label: '🔕 Siren Stop' },
+    { value: 'CALL', label: '📞 Call' },
+    { value: 'ARMED', label: '🔐 Armed' }
+  ];
+
+  // ===== FORMAT DURATION =====
+  const formatDuration = (seconds) => {
+    if (!seconds || seconds === 0) return '-';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    if (mins > 60) {
+      const hours = Math.floor(mins / 60);
+      const remainingMins = mins % 60;
+      return `${hours}h ${remainingMins}m ${secs}s`;
+    }
+    return `${mins}m ${secs}s`;
+  };
+
+  // ===== FORMAT DATE - Custom function without date-fns =====
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '-';
+    try {
+      const date = new Date(dateStr);
+      // Check if date is valid
+      if (isNaN(date.getTime())) return dateStr;
+      
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      const seconds = String(date.getSeconds()).padStart(2, '0');
+      
+      return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+    } catch {
+      return dateStr;
+    }
+  };
+
+  // ===== RENDER ALERT LOGS =====
+  const renderAlertLogs = () => {
+    if (!alertLogsData) return null;
+    
+    const logs = alertLogsData.alertLogs || [];
+    
+    if (logs.length === 0) {
+      return <div className="text-center text-slate-400 py-8">No alert logs found</div>;
+    }
+
+    return (
+      <div className="space-y-4">
+        {/* Status Summary */}
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+          {Object.entries(alertLogsData.statusCounts || {}).map(([status, count]) => (
+            <div key={status} className="bg-slate-950/50 border border-slate-800 rounded-xl p-2 text-center">
+              <div className="text-lg font-bold text-white">{count}</div>
+              <div className="text-[10px] text-slate-400 font-mono">{status}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Table */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-800/50 text-slate-400 uppercase font-mono sticky top-0 z-10">
+              <tr>
+                <th className="px-2 py-2 text-left">ID</th>
+                <th className="px-2 py-2 text-left">System</th>
+                <th className="px-2 py-2 text-left">Location</th>
+                <th className="px-2 py-2 text-left">Zones</th>
+                <th className="px-2 py-2 text-left">Zone Names</th>
+                <th className="px-2 py-2 text-left">Type</th>
+                <th className="px-2 py-2 text-left">Status</th>
+                <th className="px-2 py-2 text-left">Received</th>
+                <th className="px-2 py-2 text-left">Pending</th>
+                <th className="px-2 py-2 text-left">Resolved By</th>
+                <th className="px-2 py-2 text-left">Resolved At</th>
+                <th className="px-2 py-2 text-left">Resolution</th>
+                <th className="px-2 py-2 text-left">IP</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/50">
+              {logs.map((alert) => (
+                <tr key={alert.id} className="hover:bg-slate-900/40 transition-colors">
+                  <td className="px-2 py-2 text-slate-400 font-mono">#{alert.id}</td>
+                  <td className="px-2 py-2 text-white font-mono">
+                    {alert.system?.systemCode || 'N/A'}
+                  </td>
+                  <td className="px-2 py-2 text-slate-300">
+                    {alert.system?.location || 'N/A'}
+                  </td>
+                  <td className="px-2 py-2 text-slate-300">
+                    {alert.zoneNumbers || '00'}
+                  </td>
+                  <td className="px-2 py-2 text-slate-300 max-w-xs truncate">
+                    {alert.zoneNames || 'No Zone'}
+                  </td>
+                  <td className="px-2 py-2 text-slate-300 max-w-xs truncate">
+                    {alert.alertType || 'N/A'}
+                  </td>
+                  <td className="px-2 py-2">
+                    <StatusBadge status={alert.status} />
+                  </td>
+                  <td className="px-2 py-2 text-slate-400 text-[10px]">
+                    {formatDate(alert.receivedAt)}
+                  </td>
+                  <td className="px-2 py-2 text-yellow-400 font-mono text-center">
+                    {alert.pendingDurationSeconds ? formatDuration(alert.pendingDurationSeconds) : '-'}
+                  </td>
+                  <td className="px-2 py-2 text-slate-300">
+                    {alert.resolvedBy || '-'}
+                  </td>
+                  <td className="px-2 py-2 text-slate-400 text-[10px]">
+                    {formatDate(alert.resolvedAt)}
+                  </td>
+                  <td className="px-2 py-2 text-slate-300 max-w-xs truncate" title={alert.resolutionDescription}>
+                    {alert.resolutionDescription || '-'}
+                  </td>
+                  <td className="px-2 py-2 text-slate-400 text-[10px]">
+                    {alert.resolvedFromIp || '-'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        {totalPages > 0 && (
+          <div className="flex items-center justify-between pt-4 border-t border-slate-800">
+            <div className="text-xs text-slate-400 font-mono">
+              Showing {logs.length} of {totalRecords} records
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+                disabled={currentPage === 0}
+                className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-xs text-slate-400 font-mono">
+                Page {currentPage + 1} of {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
+                disabled={currentPage >= totalPages - 1}
+                className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(0);
+                }}
+                className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500/50"
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+              </select>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // ===== RENDER CONTENT =====
   const renderContent = () => {
-    if (loading) {
+    if (loading && !(reportType === 'alert-logs' && alertLogsData)) {
       return (
         <div className="text-center py-8">
           <div className="w-8 h-8 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto mb-2" />
@@ -335,6 +534,8 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
         return renderHealth();
       case 'performance':
         return renderPerformance();
+      case 'alert-logs':
+        return renderAlertLogs();
       default:
         return renderSummary();
     }
@@ -351,7 +552,7 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
           <StatCard label="Resolved" value={summaryData.resolved || 0} color="green" icon={<CheckCircle className="w-5 h-5" />} />
           <StatCard label="Avg Resolution" value={formatDuration(summaryData.avgResolutionSeconds)} color="yellow" icon={<Zap className="w-5 h-5" />} />
         </div>
-
+        {/* By System */}
         {summaryData.bySystem && Object.keys(summaryData.bySystem).length > 0 && (
           <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4">
             <h3 className="text-sm font-bold text-white mb-3">📊 Alerts by System</h3>
@@ -372,7 +573,7 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
             </div>
           </div>
         )}
-
+        {/* By Zone */}
         {summaryData.byZone && Object.keys(summaryData.byZone).length > 0 && (
           <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4">
             <h3 className="text-sm font-bold text-white mb-3">📍 Alerts by Zone</h3>
@@ -389,7 +590,7 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
             </div>
           </div>
         )}
-
+        {/* Resolved By */}
         {summaryData.resolvedBy && Object.keys(summaryData.resolvedBy).length > 0 && (
           <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4">
             <h3 className="text-sm font-bold text-white mb-3">👤 Resolved By</h3>
@@ -400,29 +601,6 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
                   <span className="text-xs font-bold text-emerald-400">{count}</span>
                 </div>
               ))}
-            </div>
-          </div>
-        )}
-
-        {summaryData.dailyTrend && Object.keys(summaryData.dailyTrend).length > 0 && (
-          <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4">
-            <h3 className="text-sm font-bold text-white mb-3">📈 Daily Trend</h3>
-            <div className="flex items-end gap-1 h-32 overflow-x-auto">
-              {Object.entries(summaryData.dailyTrend)
-                .sort((a, b) => a[0].localeCompare(b[0]))
-                .slice(-14)
-                .map(([date, count]) => {
-                  const values = Object.values(summaryData.dailyTrend);
-                  const max = Math.max(...values);
-                  const height = max > 0 ? (count / max) * 100 : 0;
-                  return (
-                    <div key={date} className="flex-1 flex flex-col items-center gap-1 min-w-[30px]">
-                      <div className="w-full bg-blue-500/50 rounded-t transition-all" style={{ height: `${Math.max(height, 4)}%` }} />
-                      <span className="text-[8px] text-slate-500 font-mono">{date.substring(5)}</span>
-                      <span className="text-[8px] text-slate-400 font-mono">{count}</span>
-                    </div>
-                  );
-                })}
             </div>
           </div>
         )}
@@ -455,7 +633,7 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
                 <td className="px-3 py-2 text-white font-mono text-xs">{alert.alarmSystem?.systemCode || 'UNKNOWN'}</td>
                 <td className="px-3 py-2 text-slate-300 text-xs">{alert.zoneNumbers || '00'}</td>
                 <td className="px-3 py-2"><StatusBadge status={alert.status} /></td>
-                <td className="px-3 py-2 text-slate-400 text-xs">{new Date(alert.receivedAt).toLocaleString()}</td>
+                <td className="px-3 py-2 text-slate-400 text-xs">{formatDate(alert.receivedAt)}</td>
                 <td className="px-3 py-2 text-slate-300 text-xs">{alert.resolvedBy || '-'}</td>
               </tr>
             ))}
@@ -480,7 +658,6 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
           <StatCard label="Total Zones" value={healthData.totalZones || 0} color="yellow" icon={<Zap className="w-5 h-5" />} />
           <StatCard label="Active Zones" value={healthData.activeZones || 0} color="green" icon={<CheckCircle className="w-5 h-5" />} />
         </div>
-
         {systems.map((system) => (
           <div key={system.systemCode} className="bg-slate-950/50 border border-slate-800 rounded-xl p-4">
             <div className="flex items-center justify-between mb-2">
@@ -521,7 +698,6 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
           <StatCard label="Total Resolved" value={performanceData.totalResolved || 0} color="green" icon={<CheckCircle className="w-5 h-5" />} />
           <StatCard label="Total Pending" value={performanceData.totalPending || 0} color="red" icon={<Clock className="w-5 h-5" />} />
         </div>
-
         <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4">
           <h3 className="text-sm font-bold text-white mb-3">👤 User Resolution Performance</h3>
           <div className="space-y-2">
@@ -544,9 +720,85 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
     );
   };
 
+  // ===== STATUS BADGE =====
+  function StatusBadge({ status }) {
+    if (status === 'PENDING') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/10 text-red-400 border border-red-500/20">
+          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+          PENDING
+        </span>
+      );
+    }
+    if (status === 'RESOLVED') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          RESOLVED
+        </span>
+      );
+    }
+    if (status === 'REJECTED') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/20">
+          🚫 REJECTED
+        </span>
+      );
+    }
+    if (status === 'SIREN_STOP') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/10 text-orange-400 border border-orange-500/20">
+          🔕 SIREN_STOP
+        </span>
+      );
+    }
+    if (status === 'CALL') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+          📞 CALL
+        </span>
+      );
+    }
+    if (status === 'ARMED') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
+          ARMED
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/20">
+        {status || 'UNKNOWN'}
+      </span>
+    );
+  }
+
+  // ===== STAT CARD =====
+  function StatCard({ label, value, color, icon }) {
+    const colors = {
+      blue: 'bg-blue-500/10 border-blue-500/20 text-blue-400',
+      red: 'bg-red-500/10 border-red-500/20 text-red-400',
+      green: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400',
+      yellow: 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'
+    };
+    return (
+      <div className={`p-3 rounded-xl border ${colors[color]}`}>
+        <div className="flex items-center gap-2">
+          {icon}
+          <div>
+            <p className="text-xs text-slate-400">{label}</p>
+            <p className="text-xl font-bold">{value}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden shadow-2xl shadow-blue-500/10">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-7xl w-full max-h-[90vh] overflow-hidden shadow-2xl shadow-blue-500/10">
         
         {/* HEADER */}
         <div className="flex justify-between items-center p-5 border-b border-slate-800 bg-slate-950/40 sticky top-0 z-10">
@@ -579,16 +831,20 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
           {/* REPORT TYPE CARDS */}
           <div className="mb-6">
             <label className="text-xs font-bold tracking-wide uppercase text-slate-400 font-mono block mb-2">Report Type</label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               {[
                 { id: 'summary', label: '📊 Summary', desc: 'Overview statistics' },
                 { id: 'detailed', label: '📋 Detailed', desc: 'All alerts list' },
                 { id: 'health', label: '💚 Health', desc: 'System status' },
-                { id: 'performance', label: '👤 Performance', desc: 'User activity' }
+                { id: 'performance', label: '👤 Performance', desc: 'User activity' },
+                { id: 'alert-logs', label: '📋 Alert Logs', desc: 'Complete alert details' }
               ].map((type) => (
                 <button
                   key={type.id}
-                  onClick={() => setReportType(type.id)}
+                  onClick={() => {
+                    setReportType(type.id);
+                    setCurrentPage(0);
+                  }}
                   className={`p-3 rounded-xl border text-left transition-all ${
                     reportType === type.id
                       ? 'bg-blue-500/10 border-blue-500/50 text-white shadow-lg shadow-blue-500/10'
@@ -638,6 +894,7 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
                     onChange={(e) => {
                       setFromDate(e.target.value);
                       setDateRange('custom');
+                      setCurrentPage(0);
                     }}
                     className={`bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500/50 ${
                       dateRange !== 'custom' ? 'opacity-50 cursor-not-allowed' : ''
@@ -651,11 +908,9 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
                       setTimeout(() => fromInputRef.current?.focus(), 50);
                     }}
                     className="p-1 rounded-md text-slate-400 hover:text-white"
-                    aria-label="Open from calendar"
                   >
                     <Calendar className="w-5 h-5" />
                   </button>
-                  <span className="text-slate-500 text-sm font-mono hidden sm:inline">{formatDateDisplay(fromDate)}</span>
                 </div>
               </div>
               <span className="text-slate-600 text-sm">→</span>
@@ -669,6 +924,7 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
                     onChange={(e) => {
                       setToDate(e.target.value);
                       setDateRange('custom');
+                      setCurrentPage(0);
                     }}
                     className={`bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500/50 ${
                       dateRange !== 'custom' ? 'opacity-50 cursor-not-allowed' : ''
@@ -682,23 +938,24 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
                       setTimeout(() => toInputRef.current?.focus(), 50);
                     }}
                     className="p-1 rounded-md text-slate-400 hover:text-white"
-                    aria-label="Open to calendar"
                   >
                     <Calendar className="w-5 h-5" />
                   </button>
-                  <span className="text-slate-500 text-sm font-mono hidden sm:inline">{formatDateDisplay(toDate)}</span>
                 </div>
               </div>
             </div>
           </div>
 
           {/* SYSTEM FILTER */}
-          <div className="mb-6">
+          <div className="mb-4">
             <label className="text-xs font-bold tracking-wide uppercase text-slate-400 font-mono block mb-2">🔍 System</label>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <select
                 value={selectedSystem}
-                onChange={(e) => setSelectedSystem(e.target.value)}
+                onChange={(e) => {
+                  setSelectedSystem(e.target.value);
+                  setCurrentPage(0);
+                }}
                 className="w-full sm:w-64 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500/50"
               >
                 <option value="ALL">📊 All Systems</option>
@@ -721,6 +978,27 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
             </div>
           </div>
 
+          {/* STATUS FILTER - Only for Alert Logs */}
+          {reportType === 'alert-logs' && (
+            <div className="mb-4">
+              <label className="text-xs font-bold tracking-wide uppercase text-slate-400 font-mono block mb-2">📌 Status</label>
+              <select
+                value={selectedStatus}
+                onChange={(e) => {
+                  setSelectedStatus(e.target.value);
+                  setCurrentPage(0);
+                }}
+                className="w-full sm:w-64 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500/50"
+              >
+                {statusOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* ACTIONS */}
           <div className="flex flex-wrap gap-3 mb-6">
             <button
@@ -735,33 +1013,64 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
               )}
               Generate
             </button>
-            <button
-              onClick={() => downloadReport('pdf')}
-              disabled={downloading || !summaryData}
-              className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-sm transition-all disabled:opacity-50"
-            >
-              {downloading ? (
-                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : (
-                <Download className="w-4 h-4" />
-              )}
-              Download PDF
-            </button>
-            <button
-              onClick={() => downloadReport('excel')}
-              disabled={downloading || !summaryData}
-              className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm transition-all disabled:opacity-50"
-            >
-              {downloading ? (
-                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : (
-                <FileSpreadsheet className="w-4 h-4" />
-              )}
-              Download Excel
-            </button>
+            {reportType === 'alert-logs' ? (
+              <>
+                <button
+                  onClick={() => downloadReport('pdf')}
+                  disabled={downloading || !alertLogsData}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-sm transition-all disabled:opacity-50"
+                >
+                  {downloading ? (
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  Download PDF
+                </button>
+                <button
+                  onClick={() => downloadReport('excel')}
+                  disabled={downloading || !alertLogsData}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm transition-all disabled:opacity-50"
+                >
+                  {downloading ? (
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <FileSpreadsheet className="w-4 h-4" />
+                  )}
+                  Download Excel
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => downloadReport('pdf')}
+                  disabled={downloading || !summaryData}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-sm transition-all disabled:opacity-50"
+                >
+                  {downloading ? (
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  Download PDF
+                </button>
+                <button
+                  onClick={() => downloadReport('excel')}
+                  disabled={downloading || !summaryData}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm transition-all disabled:opacity-50"
+                >
+                  {downloading ? (
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <FileSpreadsheet className="w-4 h-4" />
+                  )}
+                  Download Excel
+                </button>
+              </>
+            )}
             <button
               onClick={printReport}
-              disabled={!summaryData}
+              disabled={!summaryData && !detailedData && !healthData && !performanceData && !alertLogsData}
               className="flex items-center gap-2 px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl text-sm transition-all disabled:opacity-50"
             >
               <Printer className="w-4 h-4" />
@@ -782,89 +1091,6 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
       </div>
     </div>
   );
-}
-
-// ===== STAT CARD =====
-function StatCard({ label, value, color, icon }) {
-  const colors = {
-    blue: 'bg-blue-500/10 border-blue-500/20 text-blue-400',
-    red: 'bg-red-500/10 border-red-500/20 text-red-400',
-    green: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400',
-    yellow: 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'
-  };
-  return (
-    <div className={`p-3 rounded-xl border ${colors[color]}`}>
-      <div className="flex items-center gap-2">
-        {icon}
-        <div>
-          <p className="text-xs text-slate-400">{label}</p>
-          <p className="text-xl font-bold">{value}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-StatCard.propTypes = {
-  label: PropTypes.string.isRequired,
-  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
-  color: PropTypes.string.isRequired,
-  icon: PropTypes.node.isRequired,
-};
-
-// ===== STATUS BADGE =====
-function StatusBadge({ status }) {
-  if (status === 'PENDING') {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/10 text-red-400 border border-red-500/20">
-        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
-        PENDING
-      </span>
-    );
-  }
-  if (status === 'RESOLVED') {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-        RESOLVED
-      </span>
-    );
-  }
-  if (status === 'CALL') {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-        📞 CALL
-      </span>
-    );
-  }
-  if (status === 'ARMED') {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
-        ARMED
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/20">
-      {status || 'UNKNOWN'}
-    </span>
-  );
-}
-
-StatusBadge.propTypes = {
-  status: PropTypes.string,
-};
-
-function formatDuration(seconds) {
-  if (!seconds || seconds === 0) return 'N/A';
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  if (mins > 60) {
-    const hours = Math.floor(mins / 60);
-    const remainingMins = mins % 60;
-    return `${hours}h ${remainingMins}m`;
-  }
-  return `${mins}m ${secs}s`;
 }
 
 ReportGenerator.propTypes = {

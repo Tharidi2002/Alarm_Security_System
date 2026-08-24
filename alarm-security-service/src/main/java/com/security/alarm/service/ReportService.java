@@ -1,5 +1,6 @@
 package com.security.alarm.service;
 
+import com.itextpdf.kernel.colors.Color;
 import com.itextpdf.kernel.colors.ColorConstants;
 import com.itextpdf.kernel.colors.DeviceRgb;
 import com.itextpdf.kernel.font.PdfFont;
@@ -620,5 +621,438 @@ public class ReportService {
 
     public List<Map<String, Object>> generateUserPerformance(LocalDateTime from, LocalDateTime to) {
         return new ArrayList<>();
+    }
+
+    // ============================================================
+    // NEW: ALERT LOGS REPORT
+    // ============================================================
+    
+    public Map<String, Object> generateAlertLogsReport(List<AlertLog> alerts, 
+                                                       LocalDateTime from, 
+                                                       LocalDateTime to,
+                                                       String username,
+                                                       String role) {
+        Map<String, Object> report = new LinkedHashMap<>();
+        
+        report.put("reportType", "ALERT_LOGS");
+        report.put("generatedBy", username != null ? username : "System");
+        report.put("userRole", role != null ? role : "ADMIN");
+        
+        Map<String, String> dateRange = new LinkedHashMap<>();
+        dateRange.put("from", from != null ? from.toString() : null);
+        dateRange.put("to", to != null ? to.toString() : null);
+        report.put("dateRange", dateRange);
+        
+        report.put("totalRecords", alerts.size());
+        report.put("generatedAt", LocalDateTime.now().toString());
+        
+        // Status counts
+        Map<String, Long> statusCounts = alerts.stream()
+            .collect(Collectors.groupingBy(
+                a -> a.getStatus() != null ? a.getStatus() : "UNKNOWN",
+                Collectors.counting()
+            ));
+        report.put("statusCounts", statusCounts);
+        
+        // System counts
+        Map<String, Long> systemCounts = alerts.stream()
+            .filter(a -> a.getAlarmSystem() != null)
+            .collect(Collectors.groupingBy(
+                a -> a.getAlarmSystem().getSystemCode(),
+                Collectors.counting()
+            ));
+        report.put("systemCounts", systemCounts);
+        
+        // Alert logs data
+        List<Map<String, Object>> alertLogsList = new ArrayList<>();
+        
+        for (AlertLog alert : alerts) {
+            Map<String, Object> log = new LinkedHashMap<>();
+            
+            log.put("id", alert.getId());
+            log.put("alertType", alert.getAlertType());
+            log.put("status", alert.getStatus());
+            log.put("receivedAt", alert.getReceivedAt());
+            log.put("zoneNumber", alert.getZoneNumber());
+            log.put("zoneNumbers", alert.getZoneNumbers());
+            log.put("zoneNames", alert.getZoneNames());
+            log.put("rawMessage", alert.getRawMessage());
+            log.put("resolvedAt", alert.getResolvedAt());
+            log.put("resolvedBy", alert.getResolvedBy());
+            log.put("pendingDurationSeconds", alert.getPendingDurationSeconds());
+            log.put("resolutionDescription", alert.getResolutionDescription());
+            log.put("resolvedFromIp", alert.getResolvedFromIp());
+            
+            if (alert.getAlarmSystem() != null) {
+                Map<String, Object> systemMap = new LinkedHashMap<>();
+                systemMap.put("id", alert.getAlarmSystem().getId());
+                systemMap.put("systemCode", alert.getAlarmSystem().getSystemCode());
+                systemMap.put("location", alert.getAlarmSystem().getLocation());
+                systemMap.put("description", alert.getAlarmSystem().getDescription());
+                systemMap.put("simNumber", alert.getAlarmSystem().getSimNumber());
+                systemMap.put("status", alert.getAlarmSystem().getStatus());
+                systemMap.put("sirenStatus", alert.getAlarmSystem().getSirenStatus());
+                
+                if (alert.getAlarmSystem().getCompany() != null) {
+                    Map<String, Object> companyMap = new LinkedHashMap<>();
+                    companyMap.put("id", alert.getAlarmSystem().getCompany().getId());
+                    companyMap.put("companyName", alert.getAlarmSystem().getCompany().getCompanyName());
+                    companyMap.put("companyCode", alert.getAlarmSystem().getCompany().getCompanyCode());
+                    systemMap.put("company", companyMap);
+                }
+                log.put("system", systemMap);
+            }
+            
+            alertLogsList.add(log);
+        }
+        
+        report.put("alertLogs", alertLogsList);
+        
+        return report;
+    }
+
+    // ============================================================
+    // NEW: ALERT LOGS PDF EXPORT
+    // ============================================================
+    
+    public byte[] generateAlertLogsPDF(List<AlertLog> alerts, 
+                                       LocalDateTime from, 
+                                       LocalDateTime to,
+                                       String username,
+                                       String role) {
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            PdfWriter writer = new PdfWriter(baos);
+            PdfDocument pdfDoc = new PdfDocument(writer);
+            pdfDoc.setDefaultPageSize(PageSize.A4.rotate());
+            Document document = new Document(pdfDoc);
+            
+            PdfFont font = PdfFontFactory.createFont("Helvetica", PdfEncodings.CP1252);
+            PdfFont boldFont = PdfFontFactory.createFont("Helvetica-Bold", PdfEncodings.CP1252);
+            PdfFont smallFont = PdfFontFactory.createFont("Helvetica", PdfEncodings.CP1252);
+            
+            // ===== HEADER =====
+            Paragraph title = new Paragraph("ALARM SECURITY SYSTEM")
+                .setFont(boldFont).setFontSize(22).setFontColor(PRIMARY_COLOR)
+                .setTextAlignment(TextAlignment.CENTER).setMarginBottom(0);
+            document.add(title);
+            
+            Paragraph subtitle = new Paragraph("Complete Alert Logs Report")
+                .setFont(font).setFontSize(14).setFontColor(ColorConstants.DARK_GRAY)
+                .setTextAlignment(TextAlignment.CENTER).setMarginBottom(15);
+            document.add(subtitle);
+            
+            // ===== REPORT INFO =====
+            Table infoTable = new Table(UnitValue.createPercentArray(new float[]{1, 2}))
+                .setWidth(UnitValue.createPercentValue(100)).setMarginBottom(15);
+            
+            String[][] infoData = {
+                {"Date Range", from.format(DateTimeFormatter.ofPattern("dd MMM yyyy")) + " - " + 
+                              to.format(DateTimeFormatter.ofPattern("dd MMM yyyy"))},
+                {"Generated By", username + " (" + role + ")"},
+                {"Total Records", String.valueOf(alerts.size())},
+                {"Generated On", LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm:ss"))}
+            };
+            
+            for (String[] row : infoData) {
+                Cell labelCell = new Cell().add(new Paragraph(row[0]).setFont(boldFont).setFontSize(10))
+                    .setBorder(Border.NO_BORDER).setPadding(2);
+                Cell valueCell = new Cell().add(new Paragraph(row[1]).setFont(font).setFontSize(10))
+                    .setBorder(Border.NO_BORDER).setPadding(2);
+                infoTable.addCell(labelCell);
+                infoTable.addCell(valueCell);
+            }
+            document.add(infoTable);
+            
+            // ===== STATUS SUMMARY =====
+            Map<String, Long> statusCounts = alerts.stream()
+                .collect(Collectors.groupingBy(
+                    a -> a.getStatus() != null ? a.getStatus() : "UNKNOWN",
+                    Collectors.counting()
+                ));
+            
+            Table statsTable = new Table(UnitValue.createPercentArray(new float[]{1, 1, 1, 1, 1, 1}))
+                .setWidth(UnitValue.createPercentValue(100)).setMarginBottom(15);
+            
+            String[] statuses = {"PENDING", "RESOLVED", "REJECTED", "SIREN_STOP", "CALL", "ARMED"};
+            Color[] colors = {ACCENT_COLOR, SUCCESS_COLOR, ColorConstants.GRAY, WARNING_COLOR, 
+                                 new DeviceRgb(59, 130, 246), new DeviceRgb(234, 179, 8)};
+            
+            for (int i = 0; i < statuses.length; i++) {
+                long count = statusCounts.getOrDefault(statuses[i], 0L);
+                Cell cell = new Cell().setBackgroundColor(colors[i]).setPadding(8)
+                    .setTextAlignment(TextAlignment.CENTER);
+                cell.add(new Paragraph(String.valueOf(count)).setFont(boldFont).setFontSize(16)
+                    .setFontColor(ColorConstants.WHITE).setTextAlignment(TextAlignment.CENTER));
+                cell.add(new Paragraph(statuses[i]).setFont(smallFont).setFontSize(8)
+                    .setFontColor(ColorConstants.WHITE).setTextAlignment(TextAlignment.CENTER));
+                statsTable.addCell(cell);
+            }
+            document.add(statsTable);
+            
+            // ===== ALERT LOGS TABLE =====
+            String[] headers = {
+                "ID", "System", "Location", "Zones", "Zone Names", 
+                "Type", "Status", "Received", "Pending", 
+                "Resolved By", "Resolved At", "Resolution"
+            };
+            
+            Table logTable = new Table(UnitValue.createPercentArray(new float[]{0.5f, 0.8f, 1.0f, 0.5f, 0.8f, 0.8f, 0.6f, 1.0f, 0.5f, 0.8f, 1.0f, 1.0f}))
+                .setWidth(UnitValue.createPercentValue(100));
+            
+            // Header
+            for (String header : headers) {
+                Cell hc = new Cell().add(new Paragraph(header).setFont(boldFont).setFontSize(8))
+                    .setBackgroundColor(HEADER_BG)
+                    .setBorder(new SolidBorder(ColorConstants.LIGHT_GRAY, 0.5f))
+                    .setPadding(4)
+                    .setTextAlignment(TextAlignment.CENTER);
+                logTable.addCell(hc);
+            }
+            
+            // Data (limit to 100 rows for PDF)
+            int rowCount = 0;
+            for (AlertLog alert : alerts.stream().limit(100).collect(Collectors.toList())) {
+                if (rowCount++ >= 100) break;
+                
+                logTable.addCell(new Cell().add(new Paragraph(String.valueOf(alert.getId())).setFont(smallFont).setFontSize(7))
+                    .setPadding(3).setTextAlignment(TextAlignment.CENTER));
+                logTable.addCell(new Cell().add(new Paragraph(
+                    alert.getAlarmSystem() != null ? alert.getAlarmSystem().getSystemCode() : "N/A"
+                ).setFont(smallFont).setFontSize(7)).setPadding(3));
+                logTable.addCell(new Cell().add(new Paragraph(
+                    alert.getAlarmSystem() != null ? alert.getAlarmSystem().getLocation() : "N/A"
+                ).setFont(smallFont).setFontSize(7)).setPadding(3));
+                logTable.addCell(new Cell().add(new Paragraph(
+                    alert.getZoneNumbers() != null ? alert.getZoneNumbers() : "00"
+                ).setFont(smallFont).setFontSize(7)).setPadding(3).setTextAlignment(TextAlignment.CENTER));
+                logTable.addCell(new Cell().add(new Paragraph(
+                    alert.getZoneNames() != null ? alert.getZoneNames() : "No Zone"
+                ).setFont(smallFont).setFontSize(7)).setPadding(3));
+                logTable.addCell(new Cell().add(new Paragraph(
+                    alert.getAlertType() != null ? alert.getAlertType() : "N/A"
+                ).setFont(smallFont).setFontSize(7)).setPadding(3));
+                logTable.addCell(new Cell().add(new Paragraph(
+                    alert.getStatus() != null ? alert.getStatus() : "UNKNOWN"
+                ).setFont(smallFont).setFontSize(7).setFontColor(
+                    "PENDING".equals(alert.getStatus()) ? ACCENT_COLOR : 
+                    "RESOLVED".equals(alert.getStatus()) ? SUCCESS_COLOR : 
+                    ColorConstants.BLACK
+                )).setPadding(3).setTextAlignment(TextAlignment.CENTER));
+                logTable.addCell(new Cell().add(new Paragraph(
+                    alert.getReceivedAt() != null ? 
+                        alert.getReceivedAt().format(DateTimeFormatter.ofPattern("dd MMM HH:mm")) : "N/A"
+                ).setFont(smallFont).setFontSize(7)).setPadding(3));
+                logTable.addCell(new Cell().add(new Paragraph(
+                    alert.getPendingDurationSeconds() != null ? 
+                        formatDuration(alert.getPendingDurationSeconds()) : "-"
+                ).setFont(smallFont).setFontSize(7)).setPadding(3).setTextAlignment(TextAlignment.CENTER));
+                logTable.addCell(new Cell().add(new Paragraph(
+                    alert.getResolvedBy() != null ? alert.getResolvedBy() : "-"
+                ).setFont(smallFont).setFontSize(7)).setPadding(3));
+                logTable.addCell(new Cell().add(new Paragraph(
+                    alert.getResolvedAt() != null ? 
+                        alert.getResolvedAt().format(DateTimeFormatter.ofPattern("dd MMM HH:mm")) : "-"
+                ).setFont(smallFont).setFontSize(7)).setPadding(3));
+                logTable.addCell(new Cell().add(new Paragraph(
+                    alert.getResolutionDescription() != null ? 
+                        alert.getResolutionDescription() : "-"
+                ).setFont(smallFont).setFontSize(7)).setPadding(3));
+            }
+            
+            document.add(logTable);
+            
+            // ===== FOOTER =====
+            if (alerts.size() > 100) {
+                Paragraph note = new Paragraph("Showing first 100 records of " + alerts.size() + " total records")
+                    .setFont(font).setFontSize(8).setFontColor(ColorConstants.GRAY)
+                    .setTextAlignment(TextAlignment.CENTER).setMarginTop(10);
+                document.add(note);
+            }
+            
+            Paragraph footer = new Paragraph("Confidential - For authorized use only")
+                .setFont(font).setFontSize(8).setFontColor(ColorConstants.GRAY)
+                .setTextAlignment(TextAlignment.CENTER).setMarginTop(20);
+            document.add(footer);
+            
+            document.close();
+            return baos.toByteArray();
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new byte[0];
+        }
+    }
+
+    // ============================================================
+    // NEW: ALERT LOGS EXCEL EXPORT
+    // ============================================================
+    
+    public byte[] generateAlertLogsExcel(List<AlertLog> alerts, 
+                                         LocalDateTime from, 
+                                         LocalDateTime to,
+                                         String username,
+                                         String role) {
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            Workbook workbook = new XSSFWorkbook();
+            
+            CellStyle headerStyle = createHeaderStyle(workbook);
+            CellStyle titleStyle = createTitleStyle(workbook);
+            CellStyle pendingStyle = createPendingStyle(workbook);
+            CellStyle resolvedStyle = createResolvedStyle(workbook);
+            
+            Sheet sheet = workbook.createSheet("Alert Logs");
+            int rowNum = 0;
+            
+            // Title
+            Row titleRow = sheet.createRow(rowNum++);
+            org.apache.poi.ss.usermodel.Cell titleCell = titleRow.createCell(0);
+            titleCell.setCellValue("ALARM SECURITY SYSTEM - COMPLETE ALERT LOGS REPORT");
+            titleCell.setCellStyle(titleStyle);
+            sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, 14));
+            rowNum++;
+            
+            // Report Info
+            rowNum++;
+            Row infoRow = sheet.createRow(rowNum++);
+            infoRow.createCell(0).setCellValue("Date Range: " + 
+                from.format(DateTimeFormatter.ofPattern("dd MMM yyyy")) + " - " + 
+                to.format(DateTimeFormatter.ofPattern("dd MMM yyyy")));
+            infoRow.createCell(0).setCellStyle(headerStyle);
+            
+            Row genRow = sheet.createRow(rowNum++);
+            genRow.createCell(0).setCellValue("Generated By: " + username + " (" + role + ")");
+            genRow.createCell(0).setCellStyle(headerStyle);
+            
+            Row countRow = sheet.createRow(rowNum++);
+            countRow.createCell(0).setCellValue("Total Records: " + alerts.size());
+            countRow.createCell(0).setCellStyle(headerStyle);
+            
+            rowNum++;
+            
+            // ===== HEADERS =====
+            String[] headers = {
+                "Alert ID", "System Code", "Location", "Zone Numbers", "Zone Names",
+                "Alert Type", "Status", "Received At", "Pending Duration (s)",
+                "Resolved By", "Resolved At", "Resolution Description", "Resolved From IP",
+                "SIM Number", "Company"
+            };
+            
+            Row headerRow = sheet.createRow(rowNum++);
+            for (int i = 0; i < headers.length; i++) {
+                org.apache.poi.ss.usermodel.Cell cell = headerRow.createCell(i);
+                cell.setCellValue(headers[i]);
+                cell.setCellStyle(headerStyle);
+            }
+            
+            // ===== DATA =====
+            for (AlertLog alert : alerts) {
+                Row row = sheet.createRow(rowNum++);
+                int col = 0;
+                
+                row.createCell(col++).setCellValue(alert.getId() != null ? alert.getId() : 0);
+                row.createCell(col++).setCellValue(
+                    alert.getAlarmSystem() != null ? alert.getAlarmSystem().getSystemCode() : "N/A"
+                );
+                row.createCell(col++).setCellValue(
+                    alert.getAlarmSystem() != null ? alert.getAlarmSystem().getLocation() : "N/A"
+                );
+                row.createCell(col++).setCellValue(
+                    alert.getZoneNumbers() != null ? alert.getZoneNumbers() : "00"
+                );
+                row.createCell(col++).setCellValue(
+                    alert.getZoneNames() != null ? alert.getZoneNames() : "No Zone"
+                );
+                row.createCell(col++).setCellValue(
+                    alert.getAlertType() != null ? alert.getAlertType() : "N/A"
+                );
+                
+                // Status with color
+                org.apache.poi.ss.usermodel.Cell statusCell = row.createCell(col++);
+                String status = alert.getStatus() != null ? alert.getStatus() : "UNKNOWN";
+                statusCell.setCellValue(status);
+                if ("PENDING".equals(status)) {
+                    statusCell.setCellStyle(pendingStyle);
+                } else if ("RESOLVED".equals(status)) {
+                    statusCell.setCellStyle(resolvedStyle);
+                }
+                
+                row.createCell(col++).setCellValue(
+                    alert.getReceivedAt() != null ? 
+                        alert.getReceivedAt().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) : "N/A"
+                );
+                row.createCell(col++).setCellValue(
+                    alert.getPendingDurationSeconds() != null ? alert.getPendingDurationSeconds() : 0
+                );
+                row.createCell(col++).setCellValue(
+                    alert.getResolvedBy() != null ? alert.getResolvedBy() : "-"
+                );
+                row.createCell(col++).setCellValue(
+                    alert.getResolvedAt() != null ? 
+                        alert.getResolvedAt().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) : "-"
+                );
+                row.createCell(col++).setCellValue(
+                    alert.getResolutionDescription() != null ? alert.getResolutionDescription() : "-"
+                );
+                row.createCell(col++).setCellValue(
+                    alert.getResolvedFromIp() != null ? alert.getResolvedFromIp() : "-"
+                );
+                row.createCell(col++).setCellValue(
+                    alert.getAlarmSystem() != null ? alert.getAlarmSystem().getSimNumber() : "N/A"
+                );
+                row.createCell(col++).setCellValue(
+                    alert.getAlarmSystem() != null && alert.getAlarmSystem().getCompany() != null ?
+                        alert.getAlarmSystem().getCompany().getCompanyName() : "N/A"
+                );
+            }
+            
+            // Auto-size columns
+            for (int i = 0; i < headers.length; i++) {
+                sheet.autoSizeColumn(i);
+            }
+            
+            workbook.write(baos);
+            workbook.close();
+            return baos.toByteArray();
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new byte[0];
+        }
+    }
+
+    // ============================================================
+    // HELPER METHODS
+    // ============================================================
+    
+    private String formatDuration(Long seconds) {
+        if (seconds == null || seconds == 0) return "-";
+        long mins = seconds / 60;
+        long secs = seconds % 60;
+        if (mins > 60) {
+            long hours = mins / 60;
+            long remMins = mins % 60;
+            return hours + "h " + remMins + "m " + secs + "s";
+        }
+        return mins + "m " + secs + "s";
+    }
+
+    private CellStyle createPendingStyle(Workbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+        Font font = workbook.createFont();
+        font.setBold(true);
+        font.setColor(IndexedColors.RED.getIndex());
+        style.setFont(font);
+        style.setAlignment(HorizontalAlignment.CENTER);
+        return style;
+    }
+
+    private CellStyle createResolvedStyle(Workbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+        Font font = workbook.createFont();
+        font.setBold(true);
+        font.setColor(IndexedColors.GREEN.getIndex());
+        style.setFont(font);
+        style.setAlignment(HorizontalAlignment.CENTER);
+        return style;
     }
 }
