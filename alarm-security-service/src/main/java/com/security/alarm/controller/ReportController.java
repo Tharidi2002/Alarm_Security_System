@@ -210,13 +210,22 @@ public class ReportController {
                     preview = reportService.generateSummary(alerts, userName, role);
                     break;
                 case "detailed":
-                    preview = new HashMap<>();
+                    for (AlertLog alert : alerts) {
+                        if (alert.getAlarmSystem() != null && alert.getZoneNumbers() != null) {
+                            alert.setZoneNames(getZoneNames(alert.getAlarmSystem().getId(), alert.getZoneNumbers()));
+                        } else {
+                            alert.setZoneNames("No Zone");
+                        }
+                    }
+                    preview = new LinkedHashMap<>();
+                    preview.put("alerts", alerts);
                     preview.put("totalRecords", alerts.size());
                     preview.put("reportType", "DETAILED");
                     break;
                 case "health":
                     var systems = alarmSystemRepository.findAll();
                     preview = reportService.generateSystemHealth(systems);
+                    preview.put("reportType", "HEALTH");
                     break;
                 case "performance":
                     preview = generatePerformanceReport(alerts);
@@ -228,7 +237,6 @@ public class ReportController {
                     preview = reportService.generateSummary(alerts, userName, role);
             }
             
-            preview.put("reportType", reportType);
             return ResponseEntity.ok(preview);
         } catch (Exception e) {
             e.printStackTrace();
@@ -1026,33 +1034,106 @@ public class ReportController {
         return String.join(", ", zoneNames);
     }
 
+
+
     private Map<String, Object> generatePerformanceReport(List<AlertLog> alerts) {
-        Map<String, Long> performance = new LinkedHashMap<>();
-        alerts.stream()
-            .filter(a -> "RESOLVED".equals(a.getStatus()) && a.getResolvedBy() != null)
-            .forEach(a -> {
-                String key = a.getResolvedBy();
-                performance.put(key, performance.getOrDefault(key, 0L) + 1);
-            });
-        
-        Map<String, Double> avgTime = new LinkedHashMap<>();
-        alerts.stream()
-            .filter(a -> "RESOLVED".equals(a.getStatus()) && a.getResolvedBy() != null && a.getPendingDurationSeconds() != null)
-            .forEach(a -> {
-                String key = a.getResolvedBy();
-                double current = avgTime.getOrDefault(key, 0.0);
-                long count = performance.getOrDefault(key, 1L);
-                avgTime.put(key, (current + a.getPendingDurationSeconds()) / count);
-            });
-        
+        Map<String, List<Long>> userTimes = new LinkedHashMap<>();
+        long totalResolved = 0;
+        long totalPending = 0;
+
+        for (AlertLog alert : alerts) {
+            if ("RESOLVED".equals(alert.getStatus())) {
+                totalResolved++;
+                String user = alert.getResolvedBy() != null ? alert.getResolvedBy() : "Unknown";
+                userTimes.putIfAbsent(user, new ArrayList<>());
+                if (alert.getPendingDurationSeconds() != null) {
+                    userTimes.get(user).add(alert.getPendingDurationSeconds());
+                } else {
+                    userTimes.get(user).add(0L);
+                }
+            } else if ("PENDING".equals(alert.getStatus())) {
+                totalPending++;
+            }
+        }
+
+        Map<String, Long> resolvedByMap = new LinkedHashMap<>();
+        Map<String, Double> avgTimeMap = new LinkedHashMap<>();
+        Map<String, Long> minTimeMap = new LinkedHashMap<>();
+        Map<String, Long> maxTimeMap = new LinkedHashMap<>();
+        List<Map<String, Object>> userPerformanceList = new ArrayList<>();
+
+        String fastestUser = "N/A";
+        double minAvgSec = Double.MAX_VALUE;
+        String slowestUser = "N/A";
+        double maxAvgSec = -1;
+
+        double overallTimeSum = 0;
+        long overallTimeCount = 0;
+
+        for (Map.Entry<String, List<Long>> entry : userTimes.entrySet()) {
+            String user = entry.getKey();
+            List<Long> times = entry.getValue();
+            long count = times.size();
+            resolvedByMap.put(user, count);
+
+            long sum = 0;
+            long min = Long.MAX_VALUE;
+            long max = 0;
+
+            for (Long t : times) {
+                sum += t;
+                if (t < min) min = t;
+                if (t > max) max = t;
+                overallTimeSum += t;
+                overallTimeCount++;
+            }
+
+            if (min == Long.MAX_VALUE) min = 0;
+
+            double avg = count > 0 ? (double) sum / count : 0.0;
+            avg = Math.round(avg * 10.0) / 10.0;
+
+            avgTimeMap.put(user, avg);
+            minTimeMap.put(user, min);
+            maxTimeMap.put(user, max);
+
+            if (count > 0 && avg < minAvgSec) {
+                minAvgSec = avg;
+                fastestUser = user;
+            }
+            if (count > 0 && avg > maxAvgSec) {
+                maxAvgSec = avg;
+                slowestUser = user;
+            }
+
+            Map<String, Object> uPerf = new LinkedHashMap<>();
+            uPerf.put("user", user);
+            uPerf.put("resolvedCount", count);
+            uPerf.put("avgTimeSeconds", avg);
+            uPerf.put("minTimeSeconds", min);
+            uPerf.put("maxTimeSeconds", max);
+            double pct = totalResolved > 0 ? (count * 100.0 / totalResolved) : 0.0;
+            uPerf.put("percentage", Math.round(pct * 10.0) / 10.0);
+            userPerformanceList.add(uPerf);
+        }
+
+        double overallAvg = overallTimeCount > 0 ? (overallTimeSum / overallTimeCount) : 0.0;
+        overallAvg = Math.round(overallAvg * 10.0) / 10.0;
+
         Map<String, Object> response = new LinkedHashMap<>();
-        response.put("resolvedBy", performance);
-        response.put("averageTime", avgTime);
-        response.put("totalResolved", alerts.stream().filter(a -> "RESOLVED".equals(a.getStatus())).count());
-        response.put("totalPending", alerts.stream().filter(a -> "PENDING".equals(a.getStatus())).count());
         response.put("reportType", "PERFORMANCE");
         response.put("totalRecords", alerts.size());
-        
+        response.put("totalResolved", totalResolved);
+        response.put("totalPending", totalPending);
+        response.put("avgResolutionSeconds", overallAvg);
+        response.put("fastestResolver", fastestUser);
+        response.put("slowestResolver", slowestUser);
+        response.put("resolvedBy", resolvedByMap);
+        response.put("averageTime", avgTimeMap);
+        response.put("minTime", minTimeMap);
+        response.put("maxTime", maxTimeMap);
+        response.put("userPerformance", userPerformanceList);
+
         return response;
     }
 

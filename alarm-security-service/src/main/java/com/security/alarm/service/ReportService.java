@@ -86,12 +86,18 @@ public class ReportService {
         long resolved = alerts.stream().filter(a -> "RESOLVED".equals(a.getStatus())).count();
         long call = alerts.stream().filter(a -> "CALL".equals(a.getStatus())).count();
         long armed = alerts.stream().filter(a -> "ARMED".equals(a.getStatus())).count();
+        long sirenStop = alerts.stream().filter(a -> "SIREN_STOP".equals(a.getStatus())).count();
+        long rejected = alerts.stream().filter(a -> "REJECTED".equals(a.getStatus())).count();
         
+        summary.put("reportType", "SUMMARY");
+        summary.put("totalRecords", total);
         summary.put("totalAlerts", total);
         summary.put("pending", pending);
         summary.put("resolved", resolved);
         summary.put("call", call);
         summary.put("armed", armed);
+        summary.put("sirenStop", sirenStop);
+        summary.put("rejected", rejected);
         summary.put("generatedBy", username);
         summary.put("userRole", role);
         
@@ -134,7 +140,7 @@ public class ReportService {
             .filter(a -> "RESOLVED".equals(a.getStatus()) && a.getPendingDurationSeconds() != null)
             .mapToLong(AlertLog::getPendingDurationSeconds)
             .average();
-        summary.put("avgResolutionSeconds", avgTime.orElse(0));
+        summary.put("avgResolutionSeconds", Math.round(avgTime.orElse(0.0) * 10.0) / 10.0);
         
         Map<String, Long> statusDist = alerts.stream()
             .collect(Collectors.groupingBy(AlertLog::getStatus, Collectors.counting()));
@@ -584,6 +590,67 @@ public class ReportService {
                 }
             }
             
+            // Render Alert Logs / Alert Details Table if present
+            Object logsObj = reportData.get("alertLogs");
+            if (logsObj == null) {
+                logsObj = reportData.get("alerts");
+            }
+            List<Map<String, Object>> alertList = extractAlertList(logsObj);
+            
+            if (!alertList.isEmpty()) {
+                Paragraph logsTitle = new Paragraph("Alert Records (" + alertList.size() + " Total)")
+                    .setFont(boldFont).setFontSize(14).setFontColor(PRIMARY_COLOR)
+                    .setMarginTop(15).setMarginBottom(10);
+                document.add(logsTitle);
+                
+                Table table = new Table(UnitValue.createPercentArray(new float[]{0.8f, 1.6f, 1.4f, 1f, 1.8f, 1.2f, 1.2f, 1.8f, 1.2f, 0.8f}))
+                    .setWidth(UnitValue.createPercentValue(100));
+                
+                String[] headers = {"ID", "System", "Location", "Zones", "Zone Names", "Type", "Status", "Received", "Resolved By", "Reported"};
+                for (String h : headers) {
+                    Cell hc = new Cell().add(new Paragraph(h).setFont(boldFont).setFontSize(8))
+                        .setBackgroundColor(HEADER_BG).setBorder(new SolidBorder(ColorConstants.LIGHT_GRAY, 0.5f)).setPadding(4);
+                    table.addCell(hc);
+                }
+                
+                for (Map<String, Object> log : alertList) {
+                    String idStr = getStrVal(log, "id", "-");
+                    
+                    String sysCode = getMapVal(log.get("system"), "systemCode", "-");
+                    if ("-".equals(sysCode)) {
+                        sysCode = getMapVal(log.get("alarmSystem"), "systemCode", "-");
+                    }
+                    String locStr = getMapVal(log.get("system"), "location", "-");
+                    if ("-".equals(locStr)) {
+                        locStr = getMapVal(log.get("alarmSystem"), "location", "-");
+                    }
+                    
+                    String zones = getStrVal(log, "zoneNumbers", getStrVal(log, "zoneNumber", "-"));
+                    String zNames = getStrVal(log, "zoneNames", "-");
+                    String typeStr = getStrVal(log, "alertType", "-");
+                    String statusStr = getStrVal(log, "status", "-");
+                    String rAt = getStrVal(log, "receivedAt", "-");
+                    if (rAt.length() > 19) rAt = rAt.substring(0, 19).replace("T", " ");
+                    String rBy = getStrVal(log, "resolvedBy", "-");
+                    
+                    Object isRepObj = log.get("isReported");
+                    String reportedStr = (isRepObj instanceof Boolean && (Boolean) isRepObj) ? "Yes" : "No";
+                    
+                    table.addCell(new Cell().add(new Paragraph(idStr).setFont(font).setFontSize(7)).setPadding(3));
+                    table.addCell(new Cell().add(new Paragraph(sysCode).setFont(font).setFontSize(7)).setPadding(3));
+                    table.addCell(new Cell().add(new Paragraph(locStr).setFont(font).setFontSize(7)).setPadding(3));
+                    table.addCell(new Cell().add(new Paragraph(zones).setFont(font).setFontSize(7)).setPadding(3));
+                    table.addCell(new Cell().add(new Paragraph(zNames).setFont(font).setFontSize(7)).setPadding(3));
+                    table.addCell(new Cell().add(new Paragraph(typeStr).setFont(font).setFontSize(7)).setPadding(3));
+                    table.addCell(new Cell().add(new Paragraph(statusStr).setFont(font).setFontSize(7)).setPadding(3));
+                    table.addCell(new Cell().add(new Paragraph(rAt).setFont(font).setFontSize(7)).setPadding(3));
+                    table.addCell(new Cell().add(new Paragraph(rBy).setFont(font).setFontSize(7)).setPadding(3));
+                    table.addCell(new Cell().add(new Paragraph(reportedStr).setFont(font).setFontSize(7)).setPadding(3));
+                }
+                
+                document.add(table);
+            }
+            
             Paragraph footer = new Paragraph("Confidential - For authorized use only")
                 .setFont(font).setFontSize(8).setFontColor(ColorConstants.GRAY)
                 .setTextAlignment(TextAlignment.CENTER).setMarginTop(30);
@@ -760,6 +827,57 @@ public class ReportService {
                         double pct = totalResolved > 0 ? (val * 100.0 / totalResolved) : 0;
                         r.createCell(2).setCellValue(String.format("%.1f%%", pct));
                     }
+                }
+            }
+            
+            Object logsObjExcel = reportData.get("alertLogs");
+            if (logsObjExcel == null) {
+                logsObjExcel = reportData.get("alerts");
+            }
+            List<Map<String, Object>> alertListExcel = extractAlertList(logsObjExcel);
+            if (!alertListExcel.isEmpty()) {
+                rowNum += 2;
+                Row logTitle = sheet.createRow(rowNum++);
+                logTitle.createCell(0).setCellValue("ALERT LOGS DETAIL");
+                logTitle.getCell(0).setCellStyle(headerStyle);
+                
+                Row logHeader = sheet.createRow(rowNum++);
+                String[] headers = {"ID", "System", "Location", "Zones", "Zone Names", "Type", "Status", "Received", "Resolved By", "Reported"};
+                for (int i = 0; i < headers.length; i++) {
+                    org.apache.poi.ss.usermodel.Cell cell = logHeader.createCell(i);
+                    cell.setCellValue(headers[i]);
+                    cell.setCellStyle(headerStyle);
+                }
+                
+                for (Map<String, Object> log : alertListExcel) {
+                    Row r = sheet.createRow(rowNum++);
+                    r.createCell(0).setCellValue(getStrVal(log, "id", "-"));
+                    
+                    String sysCode = getMapVal(log.get("system"), "systemCode", "-");
+                    if ("-".equals(sysCode)) {
+                        sysCode = getMapVal(log.get("alarmSystem"), "systemCode", "-");
+                    }
+                    String locStr = getMapVal(log.get("system"), "location", "-");
+                    if ("-".equals(locStr)) {
+                        locStr = getMapVal(log.get("alarmSystem"), "location", "-");
+                    }
+                    r.createCell(1).setCellValue(sysCode);
+                    r.createCell(2).setCellValue(locStr);
+                    r.createCell(3).setCellValue(getStrVal(log, "zoneNumbers", getStrVal(log, "zoneNumber", "-")));
+                    r.createCell(4).setCellValue(getStrVal(log, "zoneNames", "-"));
+                    r.createCell(5).setCellValue(getStrVal(log, "alertType", "-"));
+                    r.createCell(6).setCellValue(getStrVal(log, "status", "-"));
+                    
+                    String rAt = getStrVal(log, "receivedAt", "-");
+                    if (rAt.length() > 19) rAt = rAt.substring(0, 19).replace("T", " ");
+                    r.createCell(7).setCellValue(rAt);
+                    
+                    String rBy = getStrVal(log, "resolvedBy", "-");
+                    r.createCell(8).setCellValue(rBy);
+                    
+                    Object isRepObj = log.get("isReported");
+                    String reportedStr = (isRepObj instanceof Boolean && (Boolean) isRepObj) ? "Yes" : "No";
+                    r.createCell(9).setCellValue(reportedStr);
                 }
             }
             
@@ -1136,6 +1254,65 @@ public class ReportService {
                                          String role) {
         Map<String, Object> reportData = generateAlertLogsReport(alerts, from, to, username, role);
         return generateReportExcel(reportData, from, to, "ALERT_LOGS", username, role);
+    }
+
+    private String getStrVal(Map<String, Object> map, String key, String defaultValue) {
+        if (map != null) {
+            Object val = map.get(key);
+            if (val != null) {
+                String str = val.toString();
+                if (!str.isEmpty() && !"null".equalsIgnoreCase(str)) {
+                    return str;
+                }
+            }
+        }
+        return defaultValue;
+    }
+
+    private String getMapVal(Object mapObj, String key, String defaultValue) {
+        if (mapObj instanceof Map) {
+            Object val = ((Map<?, ?>) mapObj).get(key);
+            if (val != null) {
+                String str = val.toString();
+                if (!str.isEmpty() && !"null".equalsIgnoreCase(str)) {
+                    return str;
+                }
+            }
+        }
+        return defaultValue;
+    }
+
+    private List<Map<String, Object>> extractAlertList(Object logsObj) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (logsObj instanceof List) {
+            List<?> list = (List<?>) logsObj;
+            for (Object item : list) {
+                if (item instanceof AlertLog) {
+                    AlertLog a = (AlertLog) item;
+                    Map<String, Object> map = new LinkedHashMap<>();
+                    map.put("id", a.getId());
+                    map.put("alertType", a.getAlertType());
+                    map.put("status", a.getStatus());
+                    map.put("receivedAt", a.getReceivedAt() != null ? a.getReceivedAt().toString() : "");
+                    map.put("zoneNumbers", a.getZoneNumbers());
+                    map.put("zoneNames", a.getZoneNames() != null ? a.getZoneNames() : "No Zone");
+                    map.put("resolvedBy", a.getResolvedBy() != null ? a.getResolvedBy() : "-");
+                    map.put("isReported", a.getIsReported() != null && a.getIsReported());
+                    if (a.getAlarmSystem() != null) {
+                        Map<String, Object> sys = new LinkedHashMap<>();
+                        sys.put("systemCode", a.getAlarmSystem().getSystemCode());
+                        sys.put("location", a.getAlarmSystem().getLocation());
+                        map.put("system", sys);
+                    }
+                    result.add(map);
+                } else if (item instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> map = (Map<String, Object>) item;
+                    result.add(map);
+                }
+            }
+        }
+        return result;
     }
 
     private long getLongValue(Map<String, Object> map, String key1, String key2, long defaultValue) {
