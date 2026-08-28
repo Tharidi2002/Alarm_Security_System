@@ -56,4 +56,29 @@ public class AlertLog {
     // ===== NEW: Zone Names (Not stored in DB, computed at runtime) =====
     @Transient
     private String zoneNames;
+
+    // ===== REPORT & ARCHIVE FIELDS =====
+    @Column(name = "is_reported")
+    private Boolean isReported = false;
+
+    @Column(name = "report_id")
+    private Long reportId;
+
+    @Column(name = "reported_at")
+    private LocalDateTime reportedAt;
+
+    @Column(name = "is_archived")
+    private Boolean isArchived = false;
+
+    @Column(name = "archived_at")
+    private LocalDateTime archivedAt;
+
+    @Column(name = "archived_reason")
+    private String archivedReason;
+
+    @Column(name = "delete_notification_sent")
+    private Boolean deleteNotificationSent = false;
+
+    @Column(name = "notification_sent_at")
+    private LocalDateTime notificationSentAt;
 }

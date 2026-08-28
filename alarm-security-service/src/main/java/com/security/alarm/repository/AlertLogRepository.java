@@ -98,4 +98,37 @@ public interface AlertLogRepository extends JpaRepository<AlertLog, Long> {
     
     @Query("SELECT COUNT(a) FROM AlertLog a WHERE a.alarmSystem.company.id = :companyId AND a.status = 'PENDING' AND a.status != 'REJECTED'")
     long countPendingByCompanyIdActive(@Param("companyId") Long companyId);
+
+    // ============================================================
+    // REPORT & DELETE METHODS
+    // ============================================================
+    @Query("SELECT a FROM AlertLog a WHERE a.receivedAt < :cutoff AND a.isArchived = false AND a.status != 'REJECTED'")
+    List<AlertLog> findAlertsOlderThan(@Param("cutoff") LocalDateTime cutoff);
+    
+    @Query("SELECT a FROM AlertLog a WHERE a.receivedAt < :cutoff AND a.deleteNotificationSent = false AND a.isArchived = false")
+    List<AlertLog> findAlertsForNotification(@Param("cutoff") LocalDateTime cutoff);
+    
+    @Query("SELECT a FROM AlertLog a WHERE a.receivedAt < :cutoff AND a.isArchived = false")
+    List<AlertLog> findAlertsForDeletion(@Param("cutoff") LocalDateTime cutoff);
+    
+    @Modifying
+    @Transactional
+    @Query("UPDATE AlertLog a SET a.isReported = true, a.reportId = :reportId, a.reportedAt = CURRENT_TIMESTAMP WHERE a.id IN :alertIds")
+    void markAlertsAsReported(@Param("alertIds") List<Long> alertIds, @Param("reportId") Long reportId);
+    
+    @Modifying
+    @Transactional
+    @Query("UPDATE AlertLog a SET a.isArchived = true, a.archivedAt = CURRENT_TIMESTAMP, a.archivedReason = :reason WHERE a.id IN :alertIds")
+    void markAlertsAsArchived(@Param("alertIds") List<Long> alertIds, @Param("reason") String reason);
+    
+    @Modifying
+    @Transactional
+    @Query("UPDATE AlertLog a SET a.deleteNotificationSent = true, a.notificationSentAt = CURRENT_TIMESTAMP WHERE a.id = :id")
+    void markNotificationSent(@Param("id") Long id);
+    
+    @Query("SELECT COUNT(a) FROM AlertLog a WHERE a.receivedAt < :cutoff AND a.isArchived = false AND a.status != 'REJECTED'")
+    long countAlertsOlderThan(@Param("cutoff") LocalDateTime cutoff);
+    
+    @Query("SELECT COUNT(a) FROM AlertLog a WHERE a.receivedAt < :cutoff AND a.isArchived = false")
+    long countAlertsForDeletion(@Param("cutoff") LocalDateTime cutoff);
 }

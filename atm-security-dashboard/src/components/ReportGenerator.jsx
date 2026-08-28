@@ -8,12 +8,16 @@ import {
   Filter, ChevronDown
 } from 'lucide-react';
 
-// Remove: import { format } from "date-fns";
+import './ReportGenerator.css';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 
 export default function ReportGenerator({ isOpen, onClose, user }) {
-  const [reportType, setReportType] = useState('summary');
+  const [reportType, setReportType] = useState('');
+  const [selectedType, setSelectedType] = useState(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewData, setPreviewData] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [dateRange, setDateRange] = useState('this_month');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -115,6 +119,91 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
     }
   }, [user.role, user.username]);
 
+  // ===== FETCH PREVIEW DATA =====
+  const fetchPreviewData = useCallback(async (typeId) => {
+    if (!typeId || !fromDate || !toDate) return null;
+
+    const params = new URLSearchParams();
+    params.append('reportType', typeId);
+    params.append('from', fromDate);
+    params.append('to', toDate);
+    if (user.role === 'USER') {
+      params.append('username', user.username);
+    }
+    if (selectedSystem !== 'ALL') {
+      params.append('systemCode', selectedSystem);
+    }
+    if (selectedStatus !== 'ALL' && typeId === 'alert-logs') {
+      params.append('status', selectedStatus);
+    }
+
+    const response = await fetch(`${API_BASE_URL}/reports/preview?${params}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Failed to fetch preview');
+    }
+    return await response.json();
+  }, [fromDate, toDate, user.role, user.username, selectedSystem, selectedStatus]);
+
+  // ===== REPORT TYPE SELECT HANDLER =====
+  const handleTypeSelect = async (typeId) => {
+    setSelectedType(typeId);
+    setReportType(typeId);
+    setPreviewLoading(true);
+    setError('');
+
+    try {
+      const preview = await fetchPreviewData(typeId);
+      setPreviewData(preview);
+      setShowPreview(true);
+    } catch (err) {
+      console.error('Failed to load preview:', err);
+      setPreviewData({ reportType: typeId });
+      setShowPreview(true);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  // ===== REAL-TIME PREVIEW UPDATE ON FILTER CHANGE =====
+  useEffect(() => {
+    if (!isOpen || !selectedType || !showPreview || !fromDate || !toDate) return;
+
+    let isMounted = true;
+    setPreviewLoading(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        const preview = await fetchPreviewData(selectedType);
+        if (isMounted && preview) {
+          setPreviewData(preview);
+        }
+      } catch (err) {
+        console.error('Failed to update preview in real-time:', err);
+      } finally {
+        if (isMounted) setPreviewLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
+  }, [isOpen, selectedType, showPreview, fromDate, toDate, selectedSystem, selectedStatus, fetchPreviewData]);
+
+  // ===== CANCEL PREVIEW HANDLER =====
+  const handleCancelPreview = () => {
+    setShowPreview(false);
+    setPreviewData(null);
+    setSelectedType(null);
+    setReportType('');
+    setSummaryData(null);
+    setDetailedData([]);
+    setHealthData(null);
+    setPerformanceData(null);
+    setAlertLogsData(null);
+  };
+
   // ===== GENERATE REPORT =====
   const generateReport = useCallback(async () => {
     if (!fromDate || !toDate) {
@@ -128,6 +217,7 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
 
     try {
       const params = new URLSearchParams();
+      params.append('reportType', reportType || 'summary');
       params.append('from', fromDate);
       params.append('to', toDate);
       if (user.role === 'USER') {
@@ -139,6 +229,7 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
       if (selectedStatus !== 'ALL' && reportType === 'alert-logs') {
         params.append('status', selectedStatus);
       }
+      params.append('saveToDb', 'true');
       
       // Add pagination for alert logs
       if (reportType === 'alert-logs') {
@@ -146,36 +237,18 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
         params.append('size', pageSize);
       }
 
-      let endpoint = '';
-      let data = null;
+      let endpoint = `${API_BASE_URL}/reports/generate`;
 
-      switch(reportType) {
-        case 'summary':
-          endpoint = `${API_BASE_URL}/reports/summary`;
-          break;
-        case 'detailed':
-          endpoint = `${API_BASE_URL}/reports/detailed`;
-          break;
-        case 'health':
-          endpoint = `${API_BASE_URL}/reports/health`;
-          break;
-        case 'performance':
-          endpoint = `${API_BASE_URL}/reports/performance`;
-          break;
-        case 'alert-logs':
-          endpoint = `${API_BASE_URL}/reports/alert-logs`;
-          break;
-        default:
-          endpoint = `${API_BASE_URL}/reports/summary`;
-      }
-
-      const response = await fetch(`${endpoint}?${params}`);
+      const response = await fetch(`${endpoint}?${params}`, {
+        method: 'POST'
+      });
+      
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(errorText || 'Failed to generate report');
       }
       
-      data = await response.json();
+      const data = await response.json();
 
       switch(reportType) {
         case 'summary':
@@ -186,7 +259,7 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
           setAlertLogsData(null);
           break;
         case 'detailed':
-          setDetailedData(data);
+          setDetailedData(data.alerts || []);
           setSummaryData(null);
           setHealthData(null);
           setPerformanceData(null);
@@ -223,7 +296,9 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
           setSummaryData(data);
       }
 
-      setSuccess('✅ Report generated successfully!');
+      const saveMsg = data.savedReportId ? ' ✅ Saved to database!' : '';
+      setSuccess(`✅ Report generated successfully!${saveMsg}`);
+      setShowPreview(false);
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       setError(err.message || 'Failed to generate report');
@@ -232,14 +307,18 @@ export default function ReportGenerator({ isOpen, onClose, user }) {
     }
   }, [fromDate, toDate, user.role, user.username, selectedSystem, selectedStatus, reportType, currentPage, pageSize]);
 
-  // ===== AUTO-GENERATE ON CHANGE =====
-useEffect(() => {
-  if (isOpen && fromDate && toDate) {
-    generateReport();
-  }
-}, [reportType, isOpen, fromDate, toDate, selectedSystem, selectedStatus, currentPage, generateReport]);
+  // ============================================================
+  // 🔥 AUTO-GENERATE REMOVED - User must click Generate button
+  // ============================================================
+  // useEffect(() => {
+  //   if (isOpen && fromDate && toDate) {
+  //     generateReport();
+  //   }
+  // }, [reportType, isOpen, fromDate, toDate, selectedSystem, selectedStatus, currentPage, generateReport]);
 
-  // ===== LOAD ON OPEN =====
+  // ============================================================
+  // LOAD ON OPEN - Only set default dates, no auto-generate
+  // ============================================================
   useEffect(() => {
     if (isOpen) {
       setDefaultDates();
@@ -794,6 +873,92 @@ useEffect(() => {
     );
   }
 
+  const getTypeLabel = (typeId) => {
+    switch (typeId) {
+      case 'summary': return 'Summary';
+      case 'detailed': return 'Detailed';
+      case 'health': return 'Health';
+      case 'performance': return 'Performance';
+      case 'alert-logs': return 'Alert Logs';
+      default: return 'Report';
+    }
+  };
+
+  const renderPreviewContent = () => {
+    if (previewLoading) {
+      return (
+        <div className="preview-loading">
+          <div className="spinner"></div>
+          <span>Loading preview metrics...</span>
+        </div>
+      );
+    }
+
+    if (!previewData) {
+      return <div className="text-slate-400 text-xs">No preview data available. Click Generate Report to load full results.</div>;
+    }
+
+    const total = previewData.totalAlerts ?? previewData.totalRecords ?? 0;
+    const pending = previewData.pending ?? 0;
+    const resolved = previewData.resolved ?? 0;
+
+    return (
+      <div className="space-y-3">
+        <div className="stat-row">
+          <span className="label">Total Records:</span>
+          <span className="value">{total}</span>
+        </div>
+        <div className="stat-row">
+          <span className="label">Pending Alerts:</span>
+          <span className="value pending">{pending}</span>
+        </div>
+        <div className="stat-row">
+          <span className="label">Resolved Alerts:</span>
+          <span className="value resolved">{resolved}</span>
+        </div>
+
+        {previewData.bySystem && Object.keys(previewData.bySystem).length > 0 && (
+          <div className="mt-3">
+            <div className="text-xs font-bold text-slate-400 mb-2">Systems Overview:</div>
+            {Object.entries(previewData.bySystem).slice(0, 4).map(([sys, count]) => {
+              const pct = total > 0 ? Math.min(100, Math.round((count / total) * 100)) : 0;
+              return (
+                <div key={sys} className="system-bar text-xs">
+                  <span className="w-24 truncate text-slate-300">{sys}</span>
+                  <div className="bar-track">
+                    <div className="bar-fill" style={{ width: `${pct}%` }}></div>
+                  </div>
+                  <span className="w-12 text-right text-slate-400 font-mono">{count}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderPreview = () => {
+    if (!showPreview) return null;
+
+    return (
+      <div className="preview-section mb-6">
+        <h3>📊 {getTypeLabel(selectedType)} Preview</h3>
+        <div className="preview-content">
+          {renderPreviewContent()}
+        </div>
+        <div className="preview-actions">
+          <button onClick={generateReport} disabled={loading} className="btn-generate">
+            {loading ? 'Generating...' : '✅ Generate Report'}
+          </button>
+          <button onClick={handleCancelPreview} className="btn-cancel">
+            ❌ Cancel
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -841,18 +1006,12 @@ useEffect(() => {
               ].map((type) => (
                 <button
                   key={type.id}
-                  onClick={() => {
-                    setReportType(type.id);
-                    setCurrentPage(0);
-                  }}
-                  className={`p-3 rounded-xl border text-left transition-all ${
-                    reportType === type.id
-                      ? 'bg-blue-500/10 border-blue-500/50 text-white shadow-lg shadow-blue-500/10'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-600'
-                  }`}
+                  onClick={() => handleTypeSelect(type.id)}
+                  className={`type-card ${selectedType === type.id ? 'selected' : ''}`}
                 >
-                  <div className="text-sm font-bold">{type.label}</div>
-                  <div className="text-[10px] text-slate-500">{type.desc}</div>
+                  <div className="type-icon">{type.label.split(' ')[0]}</div>
+                  <div className="type-label">{type.label.split(' ').slice(1).join(' ')}</div>
+                  <div className="type-desc">{type.desc}</div>
                 </button>
               ))}
             </div>
@@ -1085,8 +1244,11 @@ useEffect(() => {
             </button>
           </div>
 
+          {/* PREVIEW SECTION */}
+          {showPreview && renderPreview()}
+
           {/* REPORT CONTENT */}
-          {renderContent()}
+          {!showPreview && renderContent()}
         </div>
       </div>
     </div>

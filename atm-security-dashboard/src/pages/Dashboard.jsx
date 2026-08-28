@@ -6,6 +6,7 @@ import AlertTable from '../components/AlertTable';
 import NotificationToast from '../components/NotificationToast';
 import AdminPanel from '../components/AdminPanel';
 import ReportGenerator from '../components/ReportGenerator';
+import SavedReportsList from '../components/SavedReportsList';
 import { useAlerts } from '../hooks/useAlerts';
 import { ThermometerSun } from 'lucide-react';
 
@@ -14,6 +15,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080
 export default function Dashboard({ user, onLogout }) {
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
+  const [showSavedReports, setShowSavedReports] = useState(false);
   const [companyStatus, setCompanyStatus] = useState(null);
   const [checkingCompany, setCheckingCompany] = useState(true);
   
@@ -133,8 +135,9 @@ export default function Dashboard({ user, onLogout }) {
         onOpenAdminPanel={() => setIsAdminPanelOpen(true)}
         onRefresh={refreshAlerts}
         onOpenReport={() => setIsReportOpen(true)}
+        onOpenSavedReports={() => setShowSavedReports(true)}
         onNotificationClick={() => {}}
-        isCompanyInactive={isCompanyInactive}  // ← ADD THIS LINE
+        isCompanyInactive={isCompanyInactive}
       />
       
       <main className="p-3 sm:p-4 md:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 animate-fade-in">
@@ -266,6 +269,12 @@ export default function Dashboard({ user, onLogout }) {
       <ReportGenerator
         isOpen={isReportOpen}
         onClose={() => setIsReportOpen(false)}
+        user={user}
+      />
+
+      <SavedReportsList
+        isOpen={showSavedReports}
+        onClose={() => setShowSavedReports(false)}
         user={user}
       />
 

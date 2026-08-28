@@ -447,7 +447,8 @@ export default function AlertTable({ alerts, loading, tableContainerRef, usernam
                         </button>
                       </td>
                       <td className="py-1.5 px-1.5 sm:px-2 text-slate-400 text-[8px] sm:text-[9px] font-mono whitespace-nowrap">
-                        {new Date(alert.receivedAt).toLocaleTimeString()}
+                        <div>{new Date(alert.receivedAt).toLocaleTimeString()}</div>
+                        <div className="text-[7px] sm:text-[8px] text-slate-500">{new Date(alert.receivedAt).toLocaleDateString()}</div>
                       </td>
                       <td className="py-1.5 px-1.5 sm:px-2 text-center">
                         {isPending ? (
@@ -523,7 +524,8 @@ export default function AlertTable({ alerts, loading, tableContainerRef, usernam
                         </button>
                       </td>
                       <td className="py-1 px-1 text-slate-400 text-[7px] sm:text-[8px] font-mono whitespace-nowrap">
-                        {new Date(alert.receivedAt).toLocaleTimeString()}
+                        <div>{new Date(alert.receivedAt).toLocaleTimeString()}</div>
+                        <div className="text-[6px] sm:text-[7px] text-slate-500">{new Date(alert.receivedAt).toLocaleDateString()}</div>
                       </td>
                       <td className="py-1 px-1 text-center">
                         {isPending ? (
@@ -586,9 +588,10 @@ export default function AlertTable({ alerts, loading, tableContainerRef, usernam
                         {getMessagePreview(alert.alertType)}
                       </span>
                     </button>
-                    <span className="text-slate-500 text-[7px] font-mono flex-shrink-0">
-                      {new Date(alert.receivedAt).toLocaleTimeString()}
-                    </span>
+                    <div className="text-slate-400 text-[7px] font-mono flex-shrink-0 text-right">
+                      <div>{new Date(alert.receivedAt).toLocaleTimeString()}</div>
+                      <div className="text-[6px] text-slate-500">{new Date(alert.receivedAt).toLocaleDateString()}</div>
+                    </div>
                   </div>
 
                   {isPending && (

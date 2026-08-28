@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
-import { Shield, RefreshCw, LogOut, Settings, FileText, Power, PowerOff, Loader2, Menu, X, Wifi, WifiOff, AlertTriangle } from 'lucide-react';
+import { Shield, RefreshCw, LogOut, Settings, FileText, Power, PowerOff, Loader2, Menu, X, Wifi, WifiOff, AlertTriangle, FolderArchive } from 'lucide-react';
 import { fetchSystems, sendSystemCommand, checkServerHealth } from '../services/api';
 import NotificationBell from './NotificationBell';
 
@@ -11,7 +11,8 @@ export default function Navbar({
     onRefresh, 
     onOpenReport,
     onNotificationClick,
-    isCompanyInactive = false  // ← NEW PROP
+    onOpenSavedReports,  // ← NEW PROP
+    isCompanyInactive = false
 }) {
     const [loading, setLoading] = useState(false);
     const [commandStatus, setCommandStatus] = useState('');
@@ -265,6 +266,21 @@ export default function Navbar({
 
                     {/* ===== Action Buttons ===== */}
                     <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 w-full lg:w-auto">
+                        {/* ===== SAVED REPORTS BUTTON ===== */}
+                        <button
+                            onClick={onOpenSavedReports}
+                            disabled={isControlsDisabled}
+                            className={`flex items-center justify-center gap-1 px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-[10px] sm:text-xs font-mono transition-all flex-1 sm:flex-none ${
+                                isControlsDisabled
+                                    ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-50'
+                                    : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 hover:border-emerald-500/50'
+                            }`}
+                            title={isCompanyInactive ? 'Company is inactive' : 'View Saved Reports'}
+                        >
+                            <FolderArchive className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                            <span className="hidden xs:inline">Saved Reports</span>
+                        </button>
+
                         <button
                             onClick={onOpenReport}
                             disabled={isControlsDisabled}
@@ -334,6 +350,7 @@ Navbar.propTypes = {
     onOpenAdminPanel: PropTypes.func.isRequired,
     onRefresh: PropTypes.func.isRequired,
     onOpenReport: PropTypes.func.isRequired,
+    onOpenSavedReports: PropTypes.func,  // ← NEW PROP
     onNotificationClick: PropTypes.func,
-    isCompanyInactive: PropTypes.bool,  
+    isCompanyInactive: PropTypes.bool,
 };

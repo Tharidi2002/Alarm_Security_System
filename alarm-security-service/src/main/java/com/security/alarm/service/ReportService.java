@@ -1,5 +1,6 @@
 package com.security.alarm.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.itextpdf.kernel.colors.Color;
 import com.itextpdf.kernel.colors.ColorConstants;
 import com.itextpdf.kernel.colors.DeviceRgb;
@@ -21,13 +22,21 @@ import com.itextpdf.io.font.PdfEncodings;
 import com.security.alarm.entity.AlertLog;
 import com.security.alarm.entity.AlarmSystem;
 import com.security.alarm.entity.AlarmZone;
+import com.security.alarm.entity.SavedReport;
+import com.security.alarm.entity.ReportDownloadHistory;
+import com.security.alarm.entity.ReportViewHistory;
 import com.security.alarm.repository.AlarmZoneRepository;
+import com.security.alarm.repository.AlertLogRepository;
+import com.security.alarm.repository.SavedReportRepository;
+import com.security.alarm.repository.ReportDownloadHistoryRepository;
+import com.security.alarm.repository.ReportViewHistoryRepository;
 
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.poi.ss.util.CellRangeAddress;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayOutputStream;
 import java.time.LocalDateTime;
@@ -39,15 +48,31 @@ import java.util.stream.Collectors;
 public class ReportService {
 
     private final AlarmZoneRepository alarmZoneRepository;
+    private final AlertLogRepository alertLogRepository;
+    private final SavedReportRepository savedReportRepository;
+    private final ReportDownloadHistoryRepository downloadHistoryRepository;
+    private final ReportViewHistoryRepository viewHistoryRepository;
+    private final ObjectMapper objectMapper;
 
     private static final DeviceRgb PRIMARY_COLOR = new DeviceRgb(30, 58, 138);
     private static final DeviceRgb ACCENT_COLOR = new DeviceRgb(239, 68, 68);
     private static final DeviceRgb SUCCESS_COLOR = new DeviceRgb(34, 197, 94);
     private static final DeviceRgb WARNING_COLOR = new DeviceRgb(234, 179, 8);
     private static final DeviceRgb HEADER_BG = new DeviceRgb(241, 245, 249);
+    private static final DeviceRgb REPORTED_COLOR = new DeviceRgb(52, 211, 153);
 
-    public ReportService(AlarmZoneRepository alarmZoneRepository) {
+    public ReportService(AlarmZoneRepository alarmZoneRepository,
+                         AlertLogRepository alertLogRepository,
+                         SavedReportRepository savedReportRepository,
+                         ReportDownloadHistoryRepository downloadHistoryRepository,
+                         ReportViewHistoryRepository viewHistoryRepository,
+                         ObjectMapper objectMapper) {
         this.alarmZoneRepository = alarmZoneRepository;
+        this.alertLogRepository = alertLogRepository;
+        this.savedReportRepository = savedReportRepository;
+        this.downloadHistoryRepository = downloadHistoryRepository;
+        this.viewHistoryRepository = viewHistoryRepository;
+        this.objectMapper = objectMapper;
     }
 
     // ============================================================
@@ -130,48 +155,298 @@ public class ReportService {
     }
 
     // ============================================================
-    // GENERATE PROFESSIONAL PDF
+    // GENERATE & SAVE REPORT - ALL TYPES
     // ============================================================
-    public byte[] generateProfessionalPDF(Map<String, Object> summary, 
-                                          LocalDateTime from, LocalDateTime to, 
-                                          String systemName, String username, String role) {
+    
+    @Transactional
+    public SavedReport generateAndSaveReport(Map<String, Object> reportData,
+                                             String reportName,
+                                             String reportType,
+                                             String username,
+                                             Long userId,
+                                             Long companyId,
+                                             LocalDateTime from,
+                                             LocalDateTime to,
+                                             String systemCode,
+                                             String statusFilter,
+                                             String zoneFilter,
+                                             String userFilter,
+                                             String clientIp,
+                                             byte[] fileData,
+                                             String fileFormat,
+                                             String fileName) {
+        
+        SavedReport savedReport = new SavedReport();
+        savedReport.setReportName(reportName != null ? reportName : 
+            reportType + "_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")));
+        savedReport.setReportType(reportType);
+        savedReport.setGeneratedBy(username);
+        savedReport.setGeneratedFromIp(clientIp);
+        savedReport.setDateFrom(from);
+        savedReport.setDateTo(to);
+        savedReport.setSystemCode(systemCode);
+        savedReport.setStatusFilter(statusFilter);
+        savedReport.setZoneFilter(zoneFilter);
+        savedReport.setUserFilter(userFilter);
+        savedReport.setCompanyId(companyId);
+        savedReport.setUserId(userId);
+        savedReport.setCreatedBy(username);
+        savedReport.setFileFormat(fileFormat);
+        savedReport.setFileName(fileName);
+        
+        if (fileData != null) {
+            savedReport.setFileSize((long) fileData.length);
+        }
+        
+        Object records = reportData.get("totalRecords");
+        if (records != null) {
+            savedReport.setRecordCount(((Number) records).intValue());
+        } else {
+            Object alertLogs = reportData.get("alertLogs");
+            if (alertLogs instanceof List) {
+                savedReport.setRecordCount(((List<?>) alertLogs).size());
+            }
+        }
+        
+        try {
+            savedReport.setReportData(objectMapper.writeValueAsString(reportData));
+        } catch (Exception e) {
+            e.printStackTrace();
+            savedReport.setReportData("{}");
+        }
+        
+        return savedReportRepository.save(savedReport);
+    }
+
+    // ============================================================
+    // SAVE REPORT WITHOUT FILE (JSON only)
+    // ============================================================
+    
+    @Transactional
+    public SavedReport saveReportOnly(Map<String, Object> reportData,
+                                      String reportName,
+                                      String reportType,
+                                      String username,
+                                      Long userId,
+                                      Long companyId,
+                                      LocalDateTime from,
+                                      LocalDateTime to,
+                                      String systemCode,
+                                      String statusFilter,
+                                      String clientIp) {
+        
+        SavedReport savedReport = new SavedReport();
+        savedReport.setReportName(reportName != null ? reportName : 
+            reportType + "_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")));
+        savedReport.setReportType(reportType);
+        savedReport.setGeneratedBy(username);
+        savedReport.setGeneratedFromIp(clientIp);
+        savedReport.setDateFrom(from);
+        savedReport.setDateTo(to);
+        savedReport.setSystemCode(systemCode);
+        savedReport.setStatusFilter(statusFilter);
+        savedReport.setCompanyId(companyId);
+        savedReport.setUserId(userId);
+        savedReport.setCreatedBy(username);
+        
+        Object records = reportData.get("totalRecords");
+        if (records != null) {
+            savedReport.setRecordCount(((Number) records).intValue());
+        } else {
+            Object alertLogs = reportData.get("alertLogs");
+            if (alertLogs instanceof List) {
+                savedReport.setRecordCount(((List<?>) alertLogs).size());
+            }
+        }
+        
+        try {
+            savedReport.setReportData(objectMapper.writeValueAsString(reportData));
+        } catch (Exception e) {
+            e.printStackTrace();
+            savedReport.setReportData("{}");
+        }
+        
+        return savedReportRepository.save(savedReport);
+    }
+
+    // ============================================================
+    // GET SAVED REPORTS
+    // ============================================================
+    
+    public List<SavedReport> getSavedReports(String username, Long companyId, Long userId) {
+        if (companyId != null) {
+            return savedReportRepository.findActiveByCompanyId(companyId);
+        } else if (userId != null) {
+            return savedReportRepository.findActiveByUserId(userId);
+        } else if (username != null) {
+            return savedReportRepository.findActiveByGeneratedBy(username);
+        }
+        return savedReportRepository.findAllActive();
+    }
+    
+    public List<SavedReport> getSavedReportsByType(String reportType, String username) {
+        if (username != null) {
+            List<SavedReport> all = savedReportRepository.findActiveByGeneratedBy(username);
+            return all.stream()
+                .filter(r -> r.getReportType().equals(reportType))
+                .collect(Collectors.toList());
+        }
+        return savedReportRepository.findActiveByReportType(reportType);
+    }
+    
+    public Optional<SavedReport> getSavedReport(Long id) {
+        return savedReportRepository.findById(id);
+    }
+    
+    public Map<String, Object> getReportData(Long reportId) {
+        Optional<SavedReport> reportOpt = savedReportRepository.findById(reportId);
+        if (reportOpt.isEmpty()) {
+            throw new RuntimeException("Report not found");
+        }
+        
+        SavedReport report = reportOpt.get();
+        try {
+            return objectMapper.readValue(report.getReportData(), Map.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new HashMap<>();
+        }
+    }
+
+    // ============================================================
+    // VIEW REPORT (with tracking)
+    // ============================================================
+    
+    @Transactional
+    public SavedReport viewReport(Long reportId, String username, String clientIp) {
+        Optional<SavedReport> reportOpt = savedReportRepository.findById(reportId);
+        if (reportOpt.isEmpty()) {
+            throw new RuntimeException("Report not found");
+        }
+        
+        savedReportRepository.incrementViewCount(reportId);
+        
+        ReportViewHistory history = new ReportViewHistory();
+        history.setReportId(reportId);
+        history.setViewedBy(username);
+        history.setViewedFromIp(clientIp);
+        viewHistoryRepository.save(history);
+        
+        return reportOpt.get();
+    }
+
+    // ============================================================
+    // DOWNLOAD REPORT (with tracking)
+    // ============================================================
+    
+    @Transactional
+    public SavedReport downloadReport(Long reportId, String username, String clientIp, String fileFormat) {
+        Optional<SavedReport> reportOpt = savedReportRepository.findById(reportId);
+        if (reportOpt.isEmpty()) {
+            throw new RuntimeException("Report not found");
+        }
+        
+        SavedReport report = reportOpt.get();
+        savedReportRepository.incrementDownloadCount(reportId);
+        
+        ReportDownloadHistory history = new ReportDownloadHistory();
+        history.setReportId(reportId);
+        history.setDownloadedBy(username);
+        history.setDownloadedFromIp(clientIp);
+        history.setFileFormat(fileFormat);
+        history.setFileSize(report.getFileSize());
+        history.setDownloadStatus("SUCCESS");
+        downloadHistoryRepository.save(history);
+        
+        return report;
+    }
+
+    // ============================================================
+    // DELETE REPORT
+    // ============================================================
+    
+    @Transactional
+    public void deleteSavedReport(Long id, String deletedBy) {
+        savedReportRepository.softDeleteById(id, LocalDateTime.now(), deletedBy);
+    }
+    
+    @Transactional
+    public void deleteMultipleReports(List<Long> ids, String deletedBy) {
+        savedReportRepository.softDeleteByIds(ids, LocalDateTime.now(), deletedBy);
+    }
+
+    // ============================================================
+    // GET DOWNLOAD HISTORY
+    // ============================================================
+    
+    public List<ReportDownloadHistory> getDownloadHistory(Long reportId) {
+        return downloadHistoryRepository.findByReportIdOrderByDownloadedAtDesc(reportId);
+    }
+    
+    public List<ReportViewHistory> getViewHistory(Long reportId) {
+        return viewHistoryRepository.findByReportIdOrderByViewedAtDesc(reportId);
+    }
+
+    // ============================================================
+    // GENERATE PDF - All Report Types
+    // ============================================================
+    
+    public byte[] generateReportPDF(Map<String, Object> reportData, 
+                                    LocalDateTime from, 
+                                    LocalDateTime to,
+                                    String reportType,
+                                    String username,
+                                    String role) {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            // 🔥 Null checks
+            if (reportData == null) { reportData = new HashMap<>(); }
+            if (reportType == null || reportType.isEmpty()) { reportType = "SUMMARY"; }
+            if (from == null) { from = LocalDateTime.now().minusDays(30); }
+            if (to == null) { to = LocalDateTime.now(); }
+            if (username == null || username.isEmpty()) { username = "System"; }
+            if (role == null || role.isEmpty()) { role = "ADMIN"; }
+            
+            // 🔥 Ensure required keys exist
+            if (!reportData.containsKey("totalRecords")) { reportData.put("totalRecords", 0); }
+            if (!reportData.containsKey("statusCounts")) { reportData.put("statusCounts", new HashMap<>()); }
+            if (!reportData.containsKey("bySystem")) { reportData.put("bySystem", new HashMap<>()); }
+            if (!reportData.containsKey("byZone")) { reportData.put("byZone", new HashMap<>()); }
+            if (!reportData.containsKey("resolvedBy")) { reportData.put("resolvedBy", new HashMap<>()); }
+            if (!reportData.containsKey("resolved")) { reportData.put("resolved", 0); }
+            if (!reportData.containsKey("pending")) { reportData.put("pending", 0); }
+
             PdfWriter writer = new PdfWriter(baos);
             PdfDocument pdfDoc = new PdfDocument(writer);
-            pdfDoc.setDefaultPageSize(PageSize.A4);
+            pdfDoc.setDefaultPageSize(PageSize.A4.rotate());
             Document document = new Document(pdfDoc);
             
             PdfFont font = PdfFontFactory.createFont("Helvetica", PdfEncodings.CP1252);
             PdfFont boldFont = PdfFontFactory.createFont("Helvetica-Bold", PdfEncodings.CP1252);
+            PdfFont smallFont = PdfFontFactory.createFont("Helvetica", PdfEncodings.CP1252);
             
-            // Header
-            Paragraph company = new Paragraph("ALARM SECURITY SYSTEM")
+            Paragraph title = new Paragraph("ALARM SECURITY SYSTEM")
                 .setFont(boldFont).setFontSize(22).setFontColor(PRIMARY_COLOR)
                 .setTextAlignment(TextAlignment.CENTER).setMarginBottom(0);
-            document.add(company);
+            document.add(title);
             
-            Paragraph subtitle = new Paragraph("Professional Security Monitoring Report")
-                .setFont(font).setFontSize(12).setFontColor(ColorConstants.DARK_GRAY)
+            Paragraph subtitle = new Paragraph(reportType + " Report")
+                .setFont(font).setFontSize(14).setFontColor(ColorConstants.DARK_GRAY)
                 .setTextAlignment(TextAlignment.CENTER).setMarginBottom(15);
             document.add(subtitle);
             
-            Table divider = new Table(UnitValue.createPercentArray(new float[]{1}))
-                .setWidth(UnitValue.createPercentValue(100));
-            Cell dividerCell = new Cell().setBackgroundColor(PRIMARY_COLOR).setHeight(2).setBorder(Border.NO_BORDER);
-            divider.addCell(dividerCell);
-            document.add(divider);
-            
-            // Report Info
             Table infoTable = new Table(UnitValue.createPercentArray(new float[]{1, 2}))
-                .setWidth(UnitValue.createPercentValue(100)).setMarginTop(15).setMarginBottom(15);
+                .setWidth(UnitValue.createPercentValue(100)).setMarginBottom(15);
+            
+            String fromStr = from != null ? from.format(DateTimeFormatter.ofPattern("dd MMM yyyy")) : "N/A";
+            String toStr = to != null ? to.format(DateTimeFormatter.ofPattern("dd MMM yyyy")) : "N/A";
+            long totalRecordsVal = getLongValue(reportData, "totalRecords", "totalAlerts", 0L);
             
             String[][] infoData = {
-                {"Report Type", "Summary Report"},
-                {"Date Range", from.format(DateTimeFormatter.ofPattern("dd MMM yyyy")) + " - " + 
-                              to.format(DateTimeFormatter.ofPattern("dd MMM yyyy"))},
-                {"System", systemName},
+                {"Report Type", reportType},
+                {"Date Range", fromStr + " - " + toStr},
                 {"Generated By", username + " (" + role + ")"},
-                {"Generated On", LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm:ss"))}
+                {"Generated On", LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm:ss"))},
+                {"Total Records", String.valueOf(totalRecordsVal)}
             };
             
             for (String[] row : infoData) {
@@ -184,35 +459,39 @@ public class ReportService {
             }
             document.add(infoTable);
             
-            // Stats Cards
-            Table statsTable = new Table(UnitValue.createPercentArray(new float[]{1, 1, 1, 1}))
-                .setWidth(UnitValue.createPercentValue(100)).setMarginBottom(20);
-            
-            Object[][] statsData = {
-                {"Total Alerts", summary.get("totalAlerts"), PRIMARY_COLOR},
-                {"Pending", summary.get("pending"), ACCENT_COLOR},
-                {"Resolved", summary.get("resolved"), SUCCESS_COLOR},
-                {"CALL/ARMED", String.valueOf((long)summary.get("call") + (long)summary.get("armed")), WARNING_COLOR}
-            };
-            
-            for (Object[] row : statsData) {
-                Cell cell = new Cell().setBackgroundColor((DeviceRgb) row[2]).setPadding(10).setTextAlignment(TextAlignment.CENTER);
-                Paragraph value = new Paragraph(String.valueOf(row[1])).setFont(boldFont).setFontSize(24)
-                    .setFontColor(ColorConstants.WHITE).setTextAlignment(TextAlignment.CENTER);
-                Paragraph label = new Paragraph((String) row[0]).setFont(font).setFontSize(10)
-                    .setFontColor(ColorConstants.WHITE).setTextAlignment(TextAlignment.CENTER);
-                cell.add(value);
-                cell.add(label);
-                statsTable.addCell(cell);
+            Object statusCounts = reportData.get("statusCounts");
+            if (statusCounts == null) {
+                statusCounts = reportData.get("statusDistribution");
             }
-            document.add(statsTable);
-            
-            // By System
-            Object bySystemObj = summary.get("bySystem");
-            if (bySystemObj instanceof Map) {
+            if (statusCounts instanceof Map) {
                 @SuppressWarnings("unchecked")
-                Map<String, Long> bySystem = (Map<String, Long>) bySystemObj;
-                if (!bySystem.isEmpty()) {
+                Map<String, ?> counts = (Map<String, ?>) statusCounts;
+                
+                Table statsTable = new Table(UnitValue.createPercentArray(new float[]{1, 1, 1, 1, 1, 1}))
+                    .setWidth(UnitValue.createPercentValue(100)).setMarginBottom(15);
+                
+                String[] statuses = {"PENDING", "RESOLVED", "REJECTED", "SIREN_STOP", "CALL", "ARMED"};
+                Color[] colors = {ACCENT_COLOR, SUCCESS_COLOR, ColorConstants.GRAY, WARNING_COLOR, 
+                                     new DeviceRgb(59, 130, 246), new DeviceRgb(234, 179, 8)};
+                
+                for (int i = 0; i < statuses.length; i++) {
+                    long count = getNumberVal(counts.get(statuses[i]));
+                    Cell cell = new Cell().setBackgroundColor(colors[i]).setPadding(8)
+                        .setTextAlignment(TextAlignment.CENTER);
+                    cell.add(new Paragraph(String.valueOf(count)).setFont(boldFont).setFontSize(16)
+                        .setFontColor(ColorConstants.WHITE));
+                    cell.add(new Paragraph(statuses[i]).setFont(smallFont).setFontSize(8)
+                        .setFontColor(ColorConstants.WHITE));
+                    statsTable.addCell(cell);
+                }
+                document.add(statsTable);
+            }
+            
+            Object bySystem = reportData.get("bySystem");
+            if (bySystem instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, ?> systemMap = (Map<String, ?>) bySystem;
+                if (!systemMap.isEmpty()) {
                     Paragraph sysTitle = new Paragraph("Alerts by System")
                         .setFont(boldFont).setFontSize(14).setFontColor(PRIMARY_COLOR).setMarginBottom(10);
                     document.add(sysTitle);
@@ -227,23 +506,23 @@ public class ReportService {
                         sysTable.addCell(hc);
                     }
                     
-                    long total = (long) summary.get("totalAlerts");
-                    for (Map.Entry<String, Long> entry : bySystem.entrySet()) {
-                        double pct = total > 0 ? (entry.getValue() * 100.0 / total) : 0;
-                        sysTable.addCell(new Cell().add(new Paragraph(entry.getKey()).setFont(font).setFontSize(9)).setPadding(4));
-                        sysTable.addCell(new Cell().add(new Paragraph(String.valueOf(entry.getValue())).setFont(font).setFontSize(9)).setPadding(4));
+                    long total = getLongValue(reportData, "totalRecords", "totalAlerts", 1L);
+                    for (Map.Entry<String, ?> entry : systemMap.entrySet()) {
+                        long val = getNumberVal(entry.getValue());
+                        double pct = total > 0 ? (val * 100.0 / total) : 0;
+                        sysTable.addCell(new Cell().add(new Paragraph(String.valueOf(entry.getKey())).setFont(font).setFontSize(9)).setPadding(4));
+                        sysTable.addCell(new Cell().add(new Paragraph(String.valueOf(val)).setFont(font).setFontSize(9)).setPadding(4));
                         sysTable.addCell(new Cell().add(new Paragraph(String.format("%.1f%%", pct)).setFont(font).setFontSize(9)).setPadding(4));
                     }
                     document.add(sysTable);
                 }
             }
             
-            // By Zone
-            Object byZoneObj = summary.get("byZone");
-            if (byZoneObj instanceof Map) {
+            Object byZone = reportData.get("byZone");
+            if (byZone instanceof Map) {
                 @SuppressWarnings("unchecked")
-                Map<String, Long> byZone = (Map<String, Long>) byZoneObj;
-                if (!byZone.isEmpty()) {
+                Map<String, ?> zoneMap = (Map<String, ?>) byZone;
+                if (!zoneMap.isEmpty()) {
                     Paragraph zoneTitle = new Paragraph("Alerts by Zone")
                         .setFont(boldFont).setFontSize(14).setFontColor(PRIMARY_COLOR)
                         .setMarginTop(15).setMarginBottom(10);
@@ -259,25 +538,25 @@ public class ReportService {
                         zoneTable.addCell(hc);
                     }
                     
-                    long total = (long) summary.get("totalAlerts");
-                    List<Map.Entry<String, Long>> sortedZoneEntries = new ArrayList<>(byZone.entrySet());
-                    sortedZoneEntries.sort((a, b) -> b.getValue().compareTo(a.getValue()));
-                    for (Map.Entry<String, Long> entry : sortedZoneEntries.stream().limit(15).collect(Collectors.toList())) {
-                        double pct = total > 0 ? (entry.getValue() * 100.0 / total) : 0;
-                        zoneTable.addCell(new Cell().add(new Paragraph(entry.getKey()).setFont(font).setFontSize(9)).setPadding(4));
-                        zoneTable.addCell(new Cell().add(new Paragraph(String.valueOf(entry.getValue())).setFont(font).setFontSize(9)).setPadding(4));
+                    long total = getLongValue(reportData, "totalRecords", "totalAlerts", 1L);
+                    List<Map.Entry<String, ?>> sorted = new ArrayList<>(zoneMap.entrySet());
+                    sorted.sort((a, b) -> Long.compare(getNumberVal(b.getValue()), getNumberVal(a.getValue())));
+                    for (Map.Entry<String, ?> entry : sorted.stream().limit(15).collect(Collectors.toList())) {
+                        long val = getNumberVal(entry.getValue());
+                        double pct = total > 0 ? (val * 100.0 / total) : 0;
+                        zoneTable.addCell(new Cell().add(new Paragraph(String.valueOf(entry.getKey())).setFont(font).setFontSize(9)).setPadding(4));
+                        zoneTable.addCell(new Cell().add(new Paragraph(String.valueOf(val)).setFont(font).setFontSize(9)).setPadding(4));
                         zoneTable.addCell(new Cell().add(new Paragraph(String.format("%.1f%%", pct)).setFont(font).setFontSize(9)).setPadding(4));
                     }
                     document.add(zoneTable);
                 }
             }
             
-            // Resolved By
-            Object resolvedByObj = summary.get("resolvedBy");
-            if (resolvedByObj instanceof Map) {
+            Object resolvedBy = reportData.get("resolvedBy");
+            if (resolvedBy instanceof Map) {
                 @SuppressWarnings("unchecked")
-                Map<String, Long> resolvedBy = (Map<String, Long>) resolvedByObj;
-                if (!resolvedBy.isEmpty()) {
+                Map<String, ?> resolvedMap = (Map<String, ?>) resolvedBy;
+                if (!resolvedMap.isEmpty()) {
                     Paragraph resTitle = new Paragraph("Resolved By")
                         .setFont(boldFont).setFontSize(14).setFontColor(PRIMARY_COLOR)
                         .setMarginTop(15).setMarginBottom(10);
@@ -293,11 +572,12 @@ public class ReportService {
                         resTable.addCell(hc);
                     }
                     
-                    long totalResolved = (long) summary.get("resolved");
-                    for (Map.Entry<String, Long> entry : resolvedBy.entrySet()) {
-                        double pct = totalResolved > 0 ? (entry.getValue() * 100.0 / totalResolved) : 0;
-                        resTable.addCell(new Cell().add(new Paragraph(entry.getKey()).setFont(font).setFontSize(9)).setPadding(4));
-                        resTable.addCell(new Cell().add(new Paragraph(String.valueOf(entry.getValue())).setFont(font).setFontSize(9)).setPadding(4));
+                    long totalResolved = getLongValue(reportData, "resolved", null, 0L);
+                    for (Map.Entry<String, ?> entry : resolvedMap.entrySet()) {
+                        long val = getNumberVal(entry.getValue());
+                        double pct = totalResolved > 0 ? (val * 100.0 / totalResolved) : 0;
+                        resTable.addCell(new Cell().add(new Paragraph(String.valueOf(entry.getKey())).setFont(font).setFontSize(9)).setPadding(4));
+                        resTable.addCell(new Cell().add(new Paragraph(String.valueOf(val)).setFont(font).setFontSize(9)).setPadding(4));
                         resTable.addCell(new Cell().add(new Paragraph(String.format("%.1f%%", pct)).setFont(font).setFontSize(9)).setPadding(4));
                     }
                     document.add(resTable);
@@ -319,11 +599,15 @@ public class ReportService {
     }
 
     // ============================================================
-    // GENERATE PROFESSIONAL EXCEL
+    // GENERATE EXCEL - All Report Types
     // ============================================================
-    public byte[] generateProfessionalExcel(Map<String, Object> summary, 
-                                            LocalDateTime from, LocalDateTime to,
-                                            String username, String role) {
+    
+    public byte[] generateReportExcel(Map<String, Object> reportData,
+                                      LocalDateTime from,
+                                      LocalDateTime to,
+                                      String reportType,
+                                      String username,
+                                      String role) {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
             Workbook workbook = new XSSFWorkbook();
             
@@ -334,28 +618,28 @@ public class ReportService {
             CellStyle yellowStyle = createYellowStyle(workbook);
             CellStyle blueStyle = createBlueStyle(workbook);
             
-            Sheet summarySheet = workbook.createSheet("Summary");
+            Sheet sheet = workbook.createSheet(reportType);
             int rowNum = 0;
             
-            // Title
-            Row titleRow = summarySheet.createRow(rowNum++);
+            Row titleRow = sheet.createRow(rowNum++);
             org.apache.poi.ss.usermodel.Cell titleCell = titleRow.createCell(0);
-            titleCell.setCellValue("ALARM SECURITY SYSTEM - PROFESSIONAL REPORT");
+            titleCell.setCellValue("ALARM SECURITY SYSTEM - " + reportType + " REPORT");
             titleCell.setCellStyle(titleStyle);
-            summarySheet.addMergedRegion(new CellRangeAddress(0, 0, 0, 3));
+            sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, 3));
             rowNum++;
             
-            // Report Info
+            String fromStrExcel = from != null ? from.format(DateTimeFormatter.ofPattern("dd MMM yyyy")) : "N/A";
+            String toStrExcel = to != null ? to.format(DateTimeFormatter.ofPattern("dd MMM yyyy")) : "N/A";
+            
             String[][] infoData = {
-                {"Report Type", "Summary Report"},
-                {"Date Range", from.format(DateTimeFormatter.ofPattern("dd MMM yyyy")) + " - " + 
-                               to.format(DateTimeFormatter.ofPattern("dd MMM yyyy"))},
+                {"Report Type", reportType},
+                {"Date Range", fromStrExcel + " - " + toStrExcel},
                 {"Generated By", username + " (" + role + ")"},
                 {"Generated On", LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm:ss"))}
             };
             
             for (String[] rowData : infoData) {
-                Row r = summarySheet.createRow(rowNum++);
+                Row r = sheet.createRow(rowNum++);
                 org.apache.poi.ss.usermodel.Cell labelCell = r.createCell(0);
                 labelCell.setCellValue(rowData[0]);
                 labelCell.setCellStyle(headerStyle);
@@ -364,8 +648,7 @@ public class ReportService {
             }
             rowNum++;
             
-            // Stats
-            Row statsHeader = summarySheet.createRow(rowNum++);
+            Row statsHeader = sheet.createRow(rowNum++);
             String[] statsHeaders = {"Metric", "Value"};
             for (int i = 0; i < statsHeaders.length; i++) {
                 org.apache.poi.ss.usermodel.Cell cell = statsHeader.createCell(i);
@@ -374,32 +657,31 @@ public class ReportService {
             }
             
             Object[][] statsData = {
-                {"Total Alerts", summary.get("totalAlerts"), blueStyle},
-                {"Pending", summary.get("pending"), redStyle},
-                {"Resolved", summary.get("resolved"), greenStyle},
-                {"CALL/ARMED", (long)summary.get("call") + (long)summary.get("armed"), yellowStyle}
+                {"Total Alerts", reportData.getOrDefault("totalAlerts", reportData.getOrDefault("totalRecords", 0)), blueStyle},
+                {"Pending", reportData.getOrDefault("pending", 0), redStyle},
+                {"Resolved", reportData.getOrDefault("resolved", 0), greenStyle},
+                {"CALL/ARMED", getLongValue(reportData, "call", null, 0L) + getLongValue(reportData, "armed", null, 0L), yellowStyle}
             };
             
             for (Object[] rowData : statsData) {
-                Row r = summarySheet.createRow(rowNum++);
+                Row r = sheet.createRow(rowNum++);
                 r.createCell(0).setCellValue((String) rowData[0]);
                 org.apache.poi.ss.usermodel.Cell valCell = r.createCell(1);
                 valCell.setCellValue(String.valueOf(rowData[1]));
                 valCell.setCellStyle((CellStyle) rowData[2]);
             }
+            rowNum += 2;
             
-            // By System
-            Object bySystemObj = summary.get("bySystem");
+            Object bySystemObj = reportData.get("bySystem");
             if (bySystemObj instanceof Map) {
                 @SuppressWarnings("unchecked")
-                Map<String, Long> bySystem = (Map<String, Long>) bySystemObj;
+                Map<String, ?> bySystem = (Map<String, ?>) bySystemObj;
                 if (!bySystem.isEmpty()) {
-                    rowNum += 2;
-                    Row sysTitle = summarySheet.createRow(rowNum++);
+                    Row sysTitle = sheet.createRow(rowNum++);
                     sysTitle.createCell(0).setCellValue("ALERTS BY SYSTEM");
                     sysTitle.getCell(0).setCellStyle(headerStyle);
                     
-                    Row sysHeader = summarySheet.createRow(rowNum++);
+                    Row sysHeader = sheet.createRow(rowNum++);
                     sysHeader.createCell(0).setCellValue("System");
                     sysHeader.createCell(1).setCellValue("Alerts");
                     sysHeader.createCell(2).setCellValue("%");
@@ -407,29 +689,29 @@ public class ReportService {
                     sysHeader.getCell(1).setCellStyle(headerStyle);
                     sysHeader.getCell(2).setCellStyle(headerStyle);
                     
-                    long total = (long) summary.get("totalAlerts");
-                    for (Map.Entry<String, Long> entry : bySystem.entrySet()) {
-                        Row r = summarySheet.createRow(rowNum++);
-                        r.createCell(0).setCellValue(entry.getKey());
-                        r.createCell(1).setCellValue(entry.getValue());
-                        double pct = total > 0 ? (entry.getValue() * 100.0 / total) : 0;
+                    long total = getLongValue(reportData, "totalAlerts", "totalRecords", 1L);
+                    for (Map.Entry<String, ?> entry : bySystem.entrySet()) {
+                        long val = getNumberVal(entry.getValue());
+                        Row r = sheet.createRow(rowNum++);
+                        r.createCell(0).setCellValue(String.valueOf(entry.getKey()));
+                        r.createCell(1).setCellValue(val);
+                        double pct = total > 0 ? (val * 100.0 / total) : 0;
                         r.createCell(2).setCellValue(String.format("%.1f%%", pct));
                     }
                 }
             }
             
-            // By Zone
-            Object byZoneObj = summary.get("byZone");
+            Object byZoneObj = reportData.get("byZone");
             if (byZoneObj instanceof Map) {
                 @SuppressWarnings("unchecked")
-                Map<String, Long> byZone = (Map<String, Long>) byZoneObj;
+                Map<String, ?> byZone = (Map<String, ?>) byZoneObj;
                 if (!byZone.isEmpty()) {
                     rowNum += 2;
-                    Row zoneTitle = summarySheet.createRow(rowNum++);
+                    Row zoneTitle = sheet.createRow(rowNum++);
                     zoneTitle.createCell(0).setCellValue("ALERTS BY ZONE");
                     zoneTitle.getCell(0).setCellStyle(headerStyle);
                     
-                    Row zoneHeader = summarySheet.createRow(rowNum++);
+                    Row zoneHeader = sheet.createRow(rowNum++);
                     zoneHeader.createCell(0).setCellValue("Zone");
                     zoneHeader.createCell(1).setCellValue("Alerts");
                     zoneHeader.createCell(2).setCellValue("%");
@@ -437,31 +719,31 @@ public class ReportService {
                     zoneHeader.getCell(1).setCellStyle(headerStyle);
                     zoneHeader.getCell(2).setCellStyle(headerStyle);
                     
-                    long total = (long) summary.get("totalAlerts");
-                    List<Map.Entry<String, Long>> sortedZoneEntries = new ArrayList<>(byZone.entrySet());
-                    sortedZoneEntries.sort((a, b) -> b.getValue().compareTo(a.getValue()));
-                    for (Map.Entry<String, Long> entry : sortedZoneEntries.stream().limit(15).collect(Collectors.toList())) {
-                        Row r = summarySheet.createRow(rowNum++);
-                        r.createCell(0).setCellValue(entry.getKey());
-                        r.createCell(1).setCellValue(entry.getValue());
-                        double pct = total > 0 ? (entry.getValue() * 100.0 / total) : 0;
+                    long total = getLongValue(reportData, "totalAlerts", "totalRecords", 1L);
+                    List<Map.Entry<String, ?>> sorted = new ArrayList<>(byZone.entrySet());
+                    sorted.sort((a, b) -> Long.compare(getNumberVal(b.getValue()), getNumberVal(a.getValue())));
+                    for (Map.Entry<String, ?> entry : sorted) {
+                        long val = getNumberVal(entry.getValue());
+                        Row r = sheet.createRow(rowNum++);
+                        r.createCell(0).setCellValue(String.valueOf(entry.getKey()));
+                        r.createCell(1).setCellValue(val);
+                        double pct = total > 0 ? (val * 100.0 / total) : 0;
                         r.createCell(2).setCellValue(String.format("%.1f%%", pct));
                     }
                 }
             }
             
-            // Resolved By
-            Object resolvedByObj = summary.get("resolvedBy");
+            Object resolvedByObj = reportData.get("resolvedBy");
             if (resolvedByObj instanceof Map) {
                 @SuppressWarnings("unchecked")
-                Map<String, Long> resolvedBy = (Map<String, Long>) resolvedByObj;
+                Map<String, ?> resolvedBy = (Map<String, ?>) resolvedByObj;
                 if (!resolvedBy.isEmpty()) {
                     rowNum += 2;
-                    Row resTitle = summarySheet.createRow(rowNum++);
+                    Row resTitle = sheet.createRow(rowNum++);
                     resTitle.createCell(0).setCellValue("RESOLVED BY");
                     resTitle.getCell(0).setCellStyle(headerStyle);
                     
-                    Row resHeader = summarySheet.createRow(rowNum++);
+                    Row resHeader = sheet.createRow(rowNum++);
                     resHeader.createCell(0).setCellValue("User");
                     resHeader.createCell(1).setCellValue("Resolved");
                     resHeader.createCell(2).setCellValue("%");
@@ -469,19 +751,20 @@ public class ReportService {
                     resHeader.getCell(1).setCellStyle(headerStyle);
                     resHeader.getCell(2).setCellStyle(headerStyle);
                     
-                    long totalResolved = (long) summary.get("resolved");
-                    for (Map.Entry<String, Long> entry : resolvedBy.entrySet()) {
-                        Row r = summarySheet.createRow(rowNum++);
-                        r.createCell(0).setCellValue(entry.getKey());
-                        r.createCell(1).setCellValue(entry.getValue());
-                        double pct = totalResolved > 0 ? (entry.getValue() * 100.0 / totalResolved) : 0;
+                    long totalResolved = getLongValue(reportData, "resolved", null, 0L);
+                    for (Map.Entry<String, ?> entry : resolvedBy.entrySet()) {
+                        long val = getNumberVal(entry.getValue());
+                        Row r = sheet.createRow(rowNum++);
+                        r.createCell(0).setCellValue(String.valueOf(entry.getKey()));
+                        r.createCell(1).setCellValue(val);
+                        double pct = totalResolved > 0 ? (val * 100.0 / totalResolved) : 0;
                         r.createCell(2).setCellValue(String.format("%.1f%%", pct));
                     }
                 }
             }
             
             for (int i = 0; i < 3; i++) {
-                summarySheet.autoSizeColumn(i);
+                sheet.autoSizeColumn(i);
             }
             
             workbook.write(baos);
@@ -497,6 +780,7 @@ public class ReportService {
     // ============================================================
     // STYLE CREATION METHODS
     // ============================================================
+    
     private CellStyle createHeaderStyle(Workbook workbook) {
         CellStyle style = workbook.createCellStyle();
         Font font = workbook.createFont();
@@ -506,7 +790,7 @@ public class ReportService {
         style.setFillForegroundColor(IndexedColors.DARK_BLUE.getIndex());
         style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
         style.setAlignment(HorizontalAlignment.CENTER);
-        style.setVerticalAlignment(org.apache.poi.ss.usermodel.VerticalAlignment.CENTER);
+        style.setVerticalAlignment(VerticalAlignment.CENTER);
         style.setBorderBottom(BorderStyle.THIN);
         style.setBorderTop(BorderStyle.THIN);
         style.setBorderLeft(BorderStyle.THIN);
@@ -522,7 +806,7 @@ public class ReportService {
         font.setColor(IndexedColors.DARK_BLUE.getIndex());
         style.setFont(font);
         style.setAlignment(HorizontalAlignment.CENTER);
-        style.setVerticalAlignment(org.apache.poi.ss.usermodel.VerticalAlignment.CENTER);
+        style.setVerticalAlignment(VerticalAlignment.CENTER);
         return style;
     }
 
@@ -614,17 +898,64 @@ public class ReportService {
         return health;
     }
 
-    public List<AlertLog> getDetailedAlerts(LocalDateTime from, LocalDateTime to, 
-                                            String username, String systemCode, String status) {
-        return new ArrayList<>();
-    }
-
-    public List<Map<String, Object>> generateUserPerformance(LocalDateTime from, LocalDateTime to) {
-        return new ArrayList<>();
+    // ============================================================
+    // ALERT LOGS REPORT WITH MARKING
+    // ============================================================
+    
+    @Transactional
+    public Map<String, Object> generateAlertLogsReportWithMarking(
+            List<AlertLog> alerts, 
+            LocalDateTime from, 
+            LocalDateTime to,
+            String username,
+            String role,
+            String reportName,
+            Long companyId,
+            Long userId,
+            String clientIp) {
+        
+        Map<String, Object> report = generateAlertLogsReport(alerts, from, to, username, role);
+        
+        List<Long> alertIds = alerts.stream()
+            .map(AlertLog::getId)
+            .collect(Collectors.toList());
+        
+        if (!alertIds.isEmpty()) {
+            SavedReport savedReport = new SavedReport();
+            savedReport.setReportName(reportName != null ? reportName : 
+                "Alert_Logs_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")));
+            savedReport.setReportType("ALERT_LOGS");
+            savedReport.setGeneratedBy(username);  // ← "admin" විය යුතුයි
+            savedReport.setGeneratedFromIp(clientIp);
+            savedReport.setDateFrom(from);
+            savedReport.setDateTo(to);
+            savedReport.setRecordCount(alerts.size());
+            savedReport.setCompanyId(companyId);   // ← company_id set කරන්න
+            savedReport.setUserId(userId);          // ← user_id set කරන්න
+            savedReport.setCreatedBy(username);
+            
+            try {
+                savedReport.setReportData(objectMapper.writeValueAsString(report));
+            } catch (Exception e) {
+                e.printStackTrace();
+                savedReport.setReportData("{}");
+            }
+            
+            SavedReport saved = savedReportRepository.save(savedReport);
+            
+            alertLogRepository.markAlertsAsReported(alertIds, saved.getId());
+            
+            report.put("reportId", saved.getId());
+            report.put("markedAlertIds", alertIds);
+            report.put("markedCount", alertIds.size());
+            report.put("savedReport", saved);
+        }
+        
+        return report;
     }
 
     // ============================================================
-    // NEW: ALERT LOGS REPORT
+    // ALERT LOGS REPORT (Without marking)
     // ============================================================
     
     public Map<String, Object> generateAlertLogsReport(List<AlertLog> alerts, 
@@ -637,16 +968,9 @@ public class ReportService {
         report.put("reportType", "ALERT_LOGS");
         report.put("generatedBy", username != null ? username : "System");
         report.put("userRole", role != null ? role : "ADMIN");
-        
-        Map<String, String> dateRange = new LinkedHashMap<>();
-        dateRange.put("from", from != null ? from.toString() : null);
-        dateRange.put("to", to != null ? to.toString() : null);
-        report.put("dateRange", dateRange);
-        
         report.put("totalRecords", alerts.size());
         report.put("generatedAt", LocalDateTime.now().toString());
         
-        // Status counts
         Map<String, Long> statusCounts = alerts.stream()
             .collect(Collectors.groupingBy(
                 a -> a.getStatus() != null ? a.getStatus() : "UNKNOWN",
@@ -654,7 +978,6 @@ public class ReportService {
             ));
         report.put("statusCounts", statusCounts);
         
-        // System counts
         Map<String, Long> systemCounts = alerts.stream()
             .filter(a -> a.getAlarmSystem() != null)
             .collect(Collectors.groupingBy(
@@ -663,7 +986,6 @@ public class ReportService {
             ));
         report.put("systemCounts", systemCounts);
         
-        // Alert logs data
         List<Map<String, Object>> alertLogsList = new ArrayList<>();
         
         for (AlertLog alert : alerts) {
@@ -682,6 +1004,9 @@ public class ReportService {
             log.put("pendingDurationSeconds", alert.getPendingDurationSeconds());
             log.put("resolutionDescription", alert.getResolutionDescription());
             log.put("resolvedFromIp", alert.getResolvedFromIp());
+            log.put("isReported", alert.getIsReported() != null && alert.getIsReported());
+            log.put("reportId", alert.getReportId());
+            log.put("isArchived", alert.getIsArchived() != null && alert.getIsArchived());
             
             if (alert.getAlarmSystem() != null) {
                 Map<String, Object> systemMap = new LinkedHashMap<>();
@@ -712,347 +1037,125 @@ public class ReportService {
     }
 
     // ============================================================
-    // NEW: ALERT LOGS PDF EXPORT
+    // GET ALL SAVED REPORTS WITH FILTERS
     // ============================================================
     
+    public List<SavedReport> getSavedReportsWithFilters(String username, String reportType, 
+                                                        Long companyId, Long userId) {
+        List<SavedReport> reports;
+        
+        if (companyId != null) {
+            reports = savedReportRepository.findActiveByCompanyId(companyId);
+        } else if (userId != null) {
+            reports = savedReportRepository.findActiveByUserId(userId);
+        } else if (username != null) {
+            reports = savedReportRepository.findActiveByGeneratedBy(username);
+        } else {
+            reports = savedReportRepository.findAllActive();
+        }
+        
+        if (reportType != null && !reportType.isEmpty()) {
+            reports = reports.stream()
+                .filter(r -> r.getReportType().equals(reportType))
+                .collect(Collectors.toList());
+        }
+        
+        return reports;
+    }
+
+    // ============================================================
+    // GET REPORT STATS
+    // ============================================================
+    
+    public Map<String, Object> getReportStats(String username, Long companyId) {
+        Map<String, Object> stats = new LinkedHashMap<>();
+        
+        if (companyId != null) {
+            stats.put("totalReports", savedReportRepository.countActiveByCompanyId(companyId));
+        } else if (username != null) {
+            stats.put("totalReports", savedReportRepository.countActiveByGeneratedBy(username));
+        } else {
+            stats.put("totalReports", (long) savedReportRepository.findAllActive().size());
+        }
+        
+        List<SavedReport> reports;
+        if (companyId != null) {
+            reports = savedReportRepository.findActiveByCompanyId(companyId);
+        } else if (username != null) {
+            reports = savedReportRepository.findActiveByGeneratedBy(username);
+        } else {
+            reports = savedReportRepository.findAllActive();
+        }
+        
+        Map<String, Long> typeCounts = reports.stream()
+            .collect(Collectors.groupingBy(SavedReport::getReportType, Collectors.counting()));
+        stats.put("reportTypeCounts", typeCounts);
+        
+        long totalDownloads = reports.stream()
+            .mapToLong(r -> r.getDownloadCount() != null ? r.getDownloadCount() : 0)
+            .sum();
+        stats.put("totalDownloads", totalDownloads);
+        
+        return stats;
+    }
+
+    // ============================================================
+    // DELEGATE METHODS FOR CONTROLLER BACKWARD COMPATIBILITY
+    // ============================================================
+
+    public byte[] generateProfessionalPDF(Map<String, Object> summary, 
+                                          LocalDateTime from, 
+                                          LocalDateTime to, 
+                                          String systemName, 
+                                          String username, 
+                                          String role) {
+        return generateReportPDF(summary, from, to, "Summary", username, role);
+    }
+
+    public byte[] generateProfessionalExcel(Map<String, Object> summary, 
+                                            LocalDateTime from, 
+                                            LocalDateTime to, 
+                                            String username, 
+                                            String role) {
+        return generateReportExcel(summary, from, to, "Summary", username, role);
+    }
+
     public byte[] generateAlertLogsPDF(List<AlertLog> alerts, 
                                        LocalDateTime from, 
-                                       LocalDateTime to,
-                                       String username,
+                                       LocalDateTime to, 
+                                       String username, 
                                        String role) {
-        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-            PdfWriter writer = new PdfWriter(baos);
-            PdfDocument pdfDoc = new PdfDocument(writer);
-            pdfDoc.setDefaultPageSize(PageSize.A4.rotate());
-            Document document = new Document(pdfDoc);
-            
-            PdfFont font = PdfFontFactory.createFont("Helvetica", PdfEncodings.CP1252);
-            PdfFont boldFont = PdfFontFactory.createFont("Helvetica-Bold", PdfEncodings.CP1252);
-            PdfFont smallFont = PdfFontFactory.createFont("Helvetica", PdfEncodings.CP1252);
-            
-            // ===== HEADER =====
-            Paragraph title = new Paragraph("ALARM SECURITY SYSTEM")
-                .setFont(boldFont).setFontSize(22).setFontColor(PRIMARY_COLOR)
-                .setTextAlignment(TextAlignment.CENTER).setMarginBottom(0);
-            document.add(title);
-            
-            Paragraph subtitle = new Paragraph("Complete Alert Logs Report")
-                .setFont(font).setFontSize(14).setFontColor(ColorConstants.DARK_GRAY)
-                .setTextAlignment(TextAlignment.CENTER).setMarginBottom(15);
-            document.add(subtitle);
-            
-            // ===== REPORT INFO =====
-            Table infoTable = new Table(UnitValue.createPercentArray(new float[]{1, 2}))
-                .setWidth(UnitValue.createPercentValue(100)).setMarginBottom(15);
-            
-            String[][] infoData = {
-                {"Date Range", from.format(DateTimeFormatter.ofPattern("dd MMM yyyy")) + " - " + 
-                              to.format(DateTimeFormatter.ofPattern("dd MMM yyyy"))},
-                {"Generated By", username + " (" + role + ")"},
-                {"Total Records", String.valueOf(alerts.size())},
-                {"Generated On", LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm:ss"))}
-            };
-            
-            for (String[] row : infoData) {
-                Cell labelCell = new Cell().add(new Paragraph(row[0]).setFont(boldFont).setFontSize(10))
-                    .setBorder(Border.NO_BORDER).setPadding(2);
-                Cell valueCell = new Cell().add(new Paragraph(row[1]).setFont(font).setFontSize(10))
-                    .setBorder(Border.NO_BORDER).setPadding(2);
-                infoTable.addCell(labelCell);
-                infoTable.addCell(valueCell);
-            }
-            document.add(infoTable);
-            
-            // ===== STATUS SUMMARY =====
-            Map<String, Long> statusCounts = alerts.stream()
-                .collect(Collectors.groupingBy(
-                    a -> a.getStatus() != null ? a.getStatus() : "UNKNOWN",
-                    Collectors.counting()
-                ));
-            
-            Table statsTable = new Table(UnitValue.createPercentArray(new float[]{1, 1, 1, 1, 1, 1}))
-                .setWidth(UnitValue.createPercentValue(100)).setMarginBottom(15);
-            
-            String[] statuses = {"PENDING", "RESOLVED", "REJECTED", "SIREN_STOP", "CALL", "ARMED"};
-            Color[] colors = {ACCENT_COLOR, SUCCESS_COLOR, ColorConstants.GRAY, WARNING_COLOR, 
-                                 new DeviceRgb(59, 130, 246), new DeviceRgb(234, 179, 8)};
-            
-            for (int i = 0; i < statuses.length; i++) {
-                long count = statusCounts.getOrDefault(statuses[i], 0L);
-                Cell cell = new Cell().setBackgroundColor(colors[i]).setPadding(8)
-                    .setTextAlignment(TextAlignment.CENTER);
-                cell.add(new Paragraph(String.valueOf(count)).setFont(boldFont).setFontSize(16)
-                    .setFontColor(ColorConstants.WHITE).setTextAlignment(TextAlignment.CENTER));
-                cell.add(new Paragraph(statuses[i]).setFont(smallFont).setFontSize(8)
-                    .setFontColor(ColorConstants.WHITE).setTextAlignment(TextAlignment.CENTER));
-                statsTable.addCell(cell);
-            }
-            document.add(statsTable);
-            
-            // ===== ALERT LOGS TABLE =====
-            String[] headers = {
-                "ID", "System", "Location", "Zones", "Zone Names", 
-                "Type", "Status", "Received", "Pending", 
-                "Resolved By", "Resolved At", "Resolution"
-            };
-            
-            Table logTable = new Table(UnitValue.createPercentArray(new float[]{0.5f, 0.8f, 1.0f, 0.5f, 0.8f, 0.8f, 0.6f, 1.0f, 0.5f, 0.8f, 1.0f, 1.0f}))
-                .setWidth(UnitValue.createPercentValue(100));
-            
-            // Header
-            for (String header : headers) {
-                Cell hc = new Cell().add(new Paragraph(header).setFont(boldFont).setFontSize(8))
-                    .setBackgroundColor(HEADER_BG)
-                    .setBorder(new SolidBorder(ColorConstants.LIGHT_GRAY, 0.5f))
-                    .setPadding(4)
-                    .setTextAlignment(TextAlignment.CENTER);
-                logTable.addCell(hc);
-            }
-            
-            // Data (limit to 100 rows for PDF)
-            int rowCount = 0;
-            for (AlertLog alert : alerts.stream().limit(100).collect(Collectors.toList())) {
-                if (rowCount++ >= 100) break;
-                
-                logTable.addCell(new Cell().add(new Paragraph(String.valueOf(alert.getId())).setFont(smallFont).setFontSize(7))
-                    .setPadding(3).setTextAlignment(TextAlignment.CENTER));
-                logTable.addCell(new Cell().add(new Paragraph(
-                    alert.getAlarmSystem() != null ? alert.getAlarmSystem().getSystemCode() : "N/A"
-                ).setFont(smallFont).setFontSize(7)).setPadding(3));
-                logTable.addCell(new Cell().add(new Paragraph(
-                    alert.getAlarmSystem() != null ? alert.getAlarmSystem().getLocation() : "N/A"
-                ).setFont(smallFont).setFontSize(7)).setPadding(3));
-                logTable.addCell(new Cell().add(new Paragraph(
-                    alert.getZoneNumbers() != null ? alert.getZoneNumbers() : "00"
-                ).setFont(smallFont).setFontSize(7)).setPadding(3).setTextAlignment(TextAlignment.CENTER));
-                logTable.addCell(new Cell().add(new Paragraph(
-                    alert.getZoneNames() != null ? alert.getZoneNames() : "No Zone"
-                ).setFont(smallFont).setFontSize(7)).setPadding(3));
-                logTable.addCell(new Cell().add(new Paragraph(
-                    alert.getAlertType() != null ? alert.getAlertType() : "N/A"
-                ).setFont(smallFont).setFontSize(7)).setPadding(3));
-                logTable.addCell(new Cell().add(new Paragraph(
-                    alert.getStatus() != null ? alert.getStatus() : "UNKNOWN"
-                ).setFont(smallFont).setFontSize(7).setFontColor(
-                    "PENDING".equals(alert.getStatus()) ? ACCENT_COLOR : 
-                    "RESOLVED".equals(alert.getStatus()) ? SUCCESS_COLOR : 
-                    ColorConstants.BLACK
-                )).setPadding(3).setTextAlignment(TextAlignment.CENTER));
-                logTable.addCell(new Cell().add(new Paragraph(
-                    alert.getReceivedAt() != null ? 
-                        alert.getReceivedAt().format(DateTimeFormatter.ofPattern("dd MMM HH:mm")) : "N/A"
-                ).setFont(smallFont).setFontSize(7)).setPadding(3));
-                logTable.addCell(new Cell().add(new Paragraph(
-                    alert.getPendingDurationSeconds() != null ? 
-                        formatDuration(alert.getPendingDurationSeconds()) : "-"
-                ).setFont(smallFont).setFontSize(7)).setPadding(3).setTextAlignment(TextAlignment.CENTER));
-                logTable.addCell(new Cell().add(new Paragraph(
-                    alert.getResolvedBy() != null ? alert.getResolvedBy() : "-"
-                ).setFont(smallFont).setFontSize(7)).setPadding(3));
-                logTable.addCell(new Cell().add(new Paragraph(
-                    alert.getResolvedAt() != null ? 
-                        alert.getResolvedAt().format(DateTimeFormatter.ofPattern("dd MMM HH:mm")) : "-"
-                ).setFont(smallFont).setFontSize(7)).setPadding(3));
-                logTable.addCell(new Cell().add(new Paragraph(
-                    alert.getResolutionDescription() != null ? 
-                        alert.getResolutionDescription() : "-"
-                ).setFont(smallFont).setFontSize(7)).setPadding(3));
-            }
-            
-            document.add(logTable);
-            
-            // ===== FOOTER =====
-            if (alerts.size() > 100) {
-                Paragraph note = new Paragraph("Showing first 100 records of " + alerts.size() + " total records")
-                    .setFont(font).setFontSize(8).setFontColor(ColorConstants.GRAY)
-                    .setTextAlignment(TextAlignment.CENTER).setMarginTop(10);
-                document.add(note);
-            }
-            
-            Paragraph footer = new Paragraph("Confidential - For authorized use only")
-                .setFont(font).setFontSize(8).setFontColor(ColorConstants.GRAY)
-                .setTextAlignment(TextAlignment.CENTER).setMarginTop(20);
-            document.add(footer);
-            
-            document.close();
-            return baos.toByteArray();
-            
-        } catch (Exception e) {
-            e.printStackTrace();
-            return new byte[0];
-        }
+        Map<String, Object> reportData = generateAlertLogsReport(alerts, from, to, username, role);
+        return generateReportPDF(reportData, from, to, "ALERT_LOGS", username, role);
     }
 
-    // ============================================================
-    // NEW: ALERT LOGS EXCEL EXPORT
-    // ============================================================
-    
     public byte[] generateAlertLogsExcel(List<AlertLog> alerts, 
                                          LocalDateTime from, 
-                                         LocalDateTime to,
-                                         String username,
+                                         LocalDateTime to, 
+                                         String username, 
                                          String role) {
-        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-            Workbook workbook = new XSSFWorkbook();
-            
-            CellStyle headerStyle = createHeaderStyle(workbook);
-            CellStyle titleStyle = createTitleStyle(workbook);
-            CellStyle pendingStyle = createPendingStyle(workbook);
-            CellStyle resolvedStyle = createResolvedStyle(workbook);
-            
-            Sheet sheet = workbook.createSheet("Alert Logs");
-            int rowNum = 0;
-            
-            // Title
-            Row titleRow = sheet.createRow(rowNum++);
-            org.apache.poi.ss.usermodel.Cell titleCell = titleRow.createCell(0);
-            titleCell.setCellValue("ALARM SECURITY SYSTEM - COMPLETE ALERT LOGS REPORT");
-            titleCell.setCellStyle(titleStyle);
-            sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, 14));
-            rowNum++;
-            
-            // Report Info
-            rowNum++;
-            Row infoRow = sheet.createRow(rowNum++);
-            infoRow.createCell(0).setCellValue("Date Range: " + 
-                from.format(DateTimeFormatter.ofPattern("dd MMM yyyy")) + " - " + 
-                to.format(DateTimeFormatter.ofPattern("dd MMM yyyy")));
-            infoRow.createCell(0).setCellStyle(headerStyle);
-            
-            Row genRow = sheet.createRow(rowNum++);
-            genRow.createCell(0).setCellValue("Generated By: " + username + " (" + role + ")");
-            genRow.createCell(0).setCellStyle(headerStyle);
-            
-            Row countRow = sheet.createRow(rowNum++);
-            countRow.createCell(0).setCellValue("Total Records: " + alerts.size());
-            countRow.createCell(0).setCellStyle(headerStyle);
-            
-            rowNum++;
-            
-            // ===== HEADERS =====
-            String[] headers = {
-                "Alert ID", "System Code", "Location", "Zone Numbers", "Zone Names",
-                "Alert Type", "Status", "Received At", "Pending Duration (s)",
-                "Resolved By", "Resolved At", "Resolution Description", "Resolved From IP",
-                "SIM Number", "Company"
-            };
-            
-            Row headerRow = sheet.createRow(rowNum++);
-            for (int i = 0; i < headers.length; i++) {
-                org.apache.poi.ss.usermodel.Cell cell = headerRow.createCell(i);
-                cell.setCellValue(headers[i]);
-                cell.setCellStyle(headerStyle);
-            }
-            
-            // ===== DATA =====
-            for (AlertLog alert : alerts) {
-                Row row = sheet.createRow(rowNum++);
-                int col = 0;
-                
-                row.createCell(col++).setCellValue(alert.getId() != null ? alert.getId() : 0);
-                row.createCell(col++).setCellValue(
-                    alert.getAlarmSystem() != null ? alert.getAlarmSystem().getSystemCode() : "N/A"
-                );
-                row.createCell(col++).setCellValue(
-                    alert.getAlarmSystem() != null ? alert.getAlarmSystem().getLocation() : "N/A"
-                );
-                row.createCell(col++).setCellValue(
-                    alert.getZoneNumbers() != null ? alert.getZoneNumbers() : "00"
-                );
-                row.createCell(col++).setCellValue(
-                    alert.getZoneNames() != null ? alert.getZoneNames() : "No Zone"
-                );
-                row.createCell(col++).setCellValue(
-                    alert.getAlertType() != null ? alert.getAlertType() : "N/A"
-                );
-                
-                // Status with color
-                org.apache.poi.ss.usermodel.Cell statusCell = row.createCell(col++);
-                String status = alert.getStatus() != null ? alert.getStatus() : "UNKNOWN";
-                statusCell.setCellValue(status);
-                if ("PENDING".equals(status)) {
-                    statusCell.setCellStyle(pendingStyle);
-                } else if ("RESOLVED".equals(status)) {
-                    statusCell.setCellStyle(resolvedStyle);
-                }
-                
-                row.createCell(col++).setCellValue(
-                    alert.getReceivedAt() != null ? 
-                        alert.getReceivedAt().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) : "N/A"
-                );
-                row.createCell(col++).setCellValue(
-                    alert.getPendingDurationSeconds() != null ? alert.getPendingDurationSeconds() : 0
-                );
-                row.createCell(col++).setCellValue(
-                    alert.getResolvedBy() != null ? alert.getResolvedBy() : "-"
-                );
-                row.createCell(col++).setCellValue(
-                    alert.getResolvedAt() != null ? 
-                        alert.getResolvedAt().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) : "-"
-                );
-                row.createCell(col++).setCellValue(
-                    alert.getResolutionDescription() != null ? alert.getResolutionDescription() : "-"
-                );
-                row.createCell(col++).setCellValue(
-                    alert.getResolvedFromIp() != null ? alert.getResolvedFromIp() : "-"
-                );
-                row.createCell(col++).setCellValue(
-                    alert.getAlarmSystem() != null ? alert.getAlarmSystem().getSimNumber() : "N/A"
-                );
-                row.createCell(col++).setCellValue(
-                    alert.getAlarmSystem() != null && alert.getAlarmSystem().getCompany() != null ?
-                        alert.getAlarmSystem().getCompany().getCompanyName() : "N/A"
-                );
-            }
-            
-            // Auto-size columns
-            for (int i = 0; i < headers.length; i++) {
-                sheet.autoSizeColumn(i);
-            }
-            
-            workbook.write(baos);
-            workbook.close();
-            return baos.toByteArray();
-            
-        } catch (Exception e) {
-            e.printStackTrace();
-            return new byte[0];
+        Map<String, Object> reportData = generateAlertLogsReport(alerts, from, to, username, role);
+        return generateReportExcel(reportData, from, to, "ALERT_LOGS", username, role);
+    }
+
+    private long getLongValue(Map<String, Object> map, String key1, String key2, long defaultValue) {
+        if (map == null) return defaultValue;
+        Object val = map.get(key1);
+        if (val == null && key2 != null) {
+            val = map.get(key2);
         }
+        return getNumberVal(val != null ? val : defaultValue);
     }
 
-    // ============================================================
-    // HELPER METHODS
-    // ============================================================
-    
-    private String formatDuration(Long seconds) {
-        if (seconds == null || seconds == 0) return "-";
-        long mins = seconds / 60;
-        long secs = seconds % 60;
-        if (mins > 60) {
-            long hours = mins / 60;
-            long remMins = mins % 60;
-            return hours + "h " + remMins + "m " + secs + "s";
+    private long getNumberVal(Object val) {
+        if (val instanceof Number) {
+            return ((Number) val).longValue();
         }
-        return mins + "m " + secs + "s";
-    }
-
-    private CellStyle createPendingStyle(Workbook workbook) {
-        CellStyle style = workbook.createCellStyle();
-        Font font = workbook.createFont();
-        font.setBold(true);
-        font.setColor(IndexedColors.RED.getIndex());
-        style.setFont(font);
-        style.setAlignment(HorizontalAlignment.CENTER);
-        return style;
-    }
-
-    private CellStyle createResolvedStyle(Workbook workbook) {
-        CellStyle style = workbook.createCellStyle();
-        Font font = workbook.createFont();
-        font.setBold(true);
-        font.setColor(IndexedColors.GREEN.getIndex());
-        style.setFont(font);
-        style.setAlignment(HorizontalAlignment.CENTER);
-        return style;
+        if (val != null) {
+            try {
+                return Long.parseLong(val.toString());
+            } catch (Exception ignored) {}
+        }
+        return 0L;
     }
 }
