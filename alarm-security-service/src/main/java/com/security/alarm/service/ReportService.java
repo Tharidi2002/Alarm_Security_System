@@ -160,6 +160,23 @@ public class ReportService {
         }
     }
 
+    public String getZoneNames(Long systemId, String zoneNumbers) {
+        if (zoneNumbers == null || zoneNumbers.trim().isEmpty() || "00".equals(zoneNumbers.trim()) || "0".equals(zoneNumbers.trim())) {
+            return "No Zone";
+        }
+        
+        String[] zoneArray = zoneNumbers.split(",");
+        List<String> zoneNames = new ArrayList<>();
+        
+        for (String zoneStr : zoneArray) {
+            String trimmed = zoneStr.trim();
+            if (trimmed.isEmpty()) continue;
+            zoneNames.add(getZoneName(systemId, trimmed));
+        }
+        
+        return zoneNames.isEmpty() ? "No Zone" : String.join(", ", zoneNames);
+    }
+
     // ============================================================
     // GENERATE & SAVE REPORT - ALL TYPES
     // ============================================================
@@ -414,12 +431,15 @@ public class ReportService {
             
             // 🔥 Ensure required keys exist
             if (!reportData.containsKey("totalRecords")) { reportData.put("totalRecords", 0); }
-            if (!reportData.containsKey("statusCounts")) { reportData.put("statusCounts", new HashMap<>()); }
+            if (!reportData.containsKey("pending")) { reportData.put("pending", 0); }
+            if (!reportData.containsKey("resolved")) { reportData.put("resolved", 0); }
+            if (!reportData.containsKey("call")) { reportData.put("call", 0); }
+            if (!reportData.containsKey("armed")) { reportData.put("armed", 0); }
+            if (!reportData.containsKey("sirenStop")) { reportData.put("sirenStop", 0); }
+            if (!reportData.containsKey("rejected")) { reportData.put("rejected", 0); }
             if (!reportData.containsKey("bySystem")) { reportData.put("bySystem", new HashMap<>()); }
             if (!reportData.containsKey("byZone")) { reportData.put("byZone", new HashMap<>()); }
             if (!reportData.containsKey("resolvedBy")) { reportData.put("resolvedBy", new HashMap<>()); }
-            if (!reportData.containsKey("resolved")) { reportData.put("resolved", 0); }
-            if (!reportData.containsKey("pending")) { reportData.put("pending", 0); }
 
             PdfWriter writer = new PdfWriter(baos);
             PdfDocument pdfDoc = new PdfDocument(writer);
@@ -465,10 +485,27 @@ public class ReportService {
             }
             document.add(infoTable);
             
+            // ============================================================
+            // 🔥 STATUS SUMMARY - FIXED
+            // ============================================================
             Object statusCounts = reportData.get("statusCounts");
             if (statusCounts == null) {
                 statusCounts = reportData.get("statusDistribution");
             }
+            
+            if ("SUMMARY".equalsIgnoreCase(reportType) || "ALERT_LOGS".equalsIgnoreCase(reportType)) {
+                // 🔥 FIX: If still null or not a Map, build from individual fields
+                if (statusCounts == null || !(statusCounts instanceof Map)) {
+                    Map<String, Long> builtCounts = new LinkedHashMap<>();
+                    builtCounts.put("PENDING", getNumberVal(reportData.get("pending")));
+                    builtCounts.put("RESOLVED", getNumberVal(reportData.get("resolved")));
+                    builtCounts.put("CALL", getNumberVal(reportData.get("call")));
+                    builtCounts.put("ARMED", getNumberVal(reportData.get("armed")));
+                    builtCounts.put("SIREN_STOP", getNumberVal(reportData.get("sirenStop")));
+                    builtCounts.put("REJECTED", getNumberVal(reportData.get("rejected")));
+                    statusCounts = builtCounts;
+                }
+            
             if (statusCounts instanceof Map) {
                 @SuppressWarnings("unchecked")
                 Map<String, ?> counts = (Map<String, ?>) statusCounts;
@@ -478,7 +515,7 @@ public class ReportService {
                 
                 String[] statuses = {"PENDING", "RESOLVED", "REJECTED", "SIREN_STOP", "CALL", "ARMED"};
                 Color[] colors = {ACCENT_COLOR, SUCCESS_COLOR, ColorConstants.GRAY, WARNING_COLOR, 
-                                     new DeviceRgb(59, 130, 246), new DeviceRgb(234, 179, 8)};
+                                    new DeviceRgb(59, 130, 246), new DeviceRgb(234, 179, 8)};
                 
                 for (int i = 0; i < statuses.length; i++) {
                     long count = getNumberVal(counts.get(statuses[i]));
@@ -492,7 +529,135 @@ public class ReportService {
                 }
                 document.add(statsTable);
             }
+            } // END SUMMARY OR ALERT_LOGS CHECK
             
+            // ============================================================
+            // HEALTH REPORT METRICS
+            // ============================================================
+            if ("HEALTH".equalsIgnoreCase(reportType)) {
+                Table healthTable = new Table(UnitValue.createPercentArray(new float[]{1, 1, 1, 1, 1}))
+                    .setWidth(UnitValue.createPercentValue(100)).setMarginBottom(15);
+                
+                String[] hLabels = {"Total Systems", "Active Systems", "Inactive Systems", "Total Zones", "Active Zones"};
+                String[] hKeys = {"totalSystems", "activeSystems", "inactiveSystems", "totalZones", "activeZones"};
+                Color[] hColors = {ColorConstants.DARK_GRAY, SUCCESS_COLOR, ColorConstants.RED, PRIMARY_COLOR, SUCCESS_COLOR};
+                
+                for (int i = 0; i < hLabels.length; i++) {
+                    long count = getNumberVal(reportData.get(hKeys[i]));
+                    Cell cell = new Cell().setBackgroundColor(hColors[i]).setPadding(8)
+                        .setTextAlignment(TextAlignment.CENTER);
+                    cell.add(new Paragraph(String.valueOf(count)).setFont(boldFont).setFontSize(16)
+                        .setFontColor(ColorConstants.WHITE));
+                    cell.add(new Paragraph(hLabels[i]).setFont(smallFont).setFontSize(8)
+                        .setFontColor(ColorConstants.WHITE));
+                    healthTable.addCell(cell);
+                }
+                document.add(healthTable);
+                
+                Object sysObj = reportData.get("systems");
+                if (sysObj instanceof List) {
+                    List<?> sysList = (List<?>) sysObj;
+                    if (!sysList.isEmpty()) {
+                        Paragraph sysTitle = new Paragraph("System Details")
+                            .setFont(boldFont).setFontSize(14).setFontColor(PRIMARY_COLOR).setMarginBottom(10);
+                        document.add(sysTitle);
+                        
+                        Table sysTable = new Table(UnitValue.createPercentArray(new float[]{1, 2, 1, 1, 1, 1}))
+                            .setWidth(UnitValue.createPercentValue(100)).setMarginBottom(15);
+                        
+                        String[] sysHeaders = {"System Code", "Location", "Status", "Last Changed", "Total Zones", "Active Zones"};
+                        for (String h : sysHeaders) {
+                            Cell hc = new Cell().add(new Paragraph(h).setFont(boldFont).setFontSize(10))
+                                .setBackgroundColor(HEADER_BG).setBorder(new SolidBorder(ColorConstants.LIGHT_GRAY, 0.5f)).setPadding(5);
+                            sysTable.addCell(hc);
+                        }
+                        
+                        for (Object item : sysList) {
+                            if (item instanceof Map) {
+                                Map<String, Object> map = (Map<String, Object>) item;
+                                sysTable.addCell(new Cell().add(new Paragraph(getStrVal(map, "systemCode", "-")).setFont(font).setFontSize(9)).setPadding(4));
+                                sysTable.addCell(new Cell().add(new Paragraph(getStrVal(map, "location", "-")).setFont(font).setFontSize(9)).setPadding(4));
+                                sysTable.addCell(new Cell().add(new Paragraph(getStrVal(map, "status", "-")).setFont(font).setFontSize(9)).setPadding(4));
+                                
+                                String lastChg = getStrVal(map, "lastStatusChanged", "-");
+                                if (lastChg.length() > 19) lastChg = lastChg.substring(0, 19).replace("T", " ");
+                                sysTable.addCell(new Cell().add(new Paragraph(lastChg).setFont(font).setFontSize(9)).setPadding(4));
+                                
+                                sysTable.addCell(new Cell().add(new Paragraph(String.valueOf(getNumberVal(map.get("totalZones")))).setFont(font).setFontSize(9)).setPadding(4));
+                                sysTable.addCell(new Cell().add(new Paragraph(String.valueOf(getNumberVal(map.get("activeZones")))).setFont(font).setFontSize(9)).setPadding(4));
+                            }
+                        }
+                        document.add(sysTable);
+                    }
+                }
+            }
+            
+            // ============================================================
+            // PERFORMANCE REPORT METRICS
+            // ============================================================
+            if ("PERFORMANCE".equalsIgnoreCase(reportType)) {
+                Table perfTable = new Table(UnitValue.createPercentArray(new float[]{1, 1, 1, 1}))
+                    .setWidth(UnitValue.createPercentValue(100)).setMarginBottom(15);
+                
+                String[] pLabels = {"Total Resolved", "Total Pending", "Fastest Resolver", "Slowest Resolver"};
+                
+                long totRes = getNumberVal(reportData.get("totalResolved"));
+                long totPen = getNumberVal(reportData.get("totalPending"));
+                String fastRes = getStrVal(reportData, "fastestResolver", "-");
+                String slowRes = getStrVal(reportData, "slowestResolver", "-");
+                String[] pValues = {String.valueOf(totRes), String.valueOf(totPen), fastRes, slowRes};
+                Color[] pColors = {SUCCESS_COLOR, WARNING_COLOR, PRIMARY_COLOR, ColorConstants.RED};
+                
+                for (int i = 0; i < pLabels.length; i++) {
+                    Cell cell = new Cell().setBackgroundColor(pColors[i]).setPadding(8)
+                        .setTextAlignment(TextAlignment.CENTER);
+                    cell.add(new Paragraph(pValues[i]).setFont(boldFont).setFontSize(16)
+                        .setFontColor(ColorConstants.WHITE));
+                    cell.add(new Paragraph(pLabels[i]).setFont(smallFont).setFontSize(8)
+                        .setFontColor(ColorConstants.WHITE));
+                    perfTable.addCell(cell);
+                }
+                document.add(perfTable);
+                
+                document.add(new Paragraph("Average Resolution Time: " + getStrVal(reportData, "averageTime", "0") + " seconds")
+                    .setFont(boldFont).setFontSize(12).setMarginBottom(15));
+                
+                Object perfObj = reportData.get("userPerformance");
+                if (perfObj instanceof List) {
+                    List<?> perfList = (List<?>) perfObj;
+                    if (!perfList.isEmpty()) {
+                        Paragraph perfTitle = new Paragraph("User Performance Metrics")
+                            .setFont(boldFont).setFontSize(14).setFontColor(PRIMARY_COLOR).setMarginBottom(10);
+                        document.add(perfTitle);
+                        
+                        Table pTable = new Table(UnitValue.createPercentArray(new float[]{2, 1, 1, 1, 1}))
+                            .setWidth(UnitValue.createPercentValue(100)).setMarginBottom(15);
+                        
+                        String[] pHeaders = {"User", "Resolved Alerts", "Avg Time (s)", "Min Time (s)", "Max Time (s)"};
+                        for (String h : pHeaders) {
+                            Cell hc = new Cell().add(new Paragraph(h).setFont(boldFont).setFontSize(10))
+                                .setBackgroundColor(HEADER_BG).setBorder(new SolidBorder(ColorConstants.LIGHT_GRAY, 0.5f)).setPadding(5);
+                            pTable.addCell(hc);
+                        }
+                        
+                        for (Object item : perfList) {
+                            if (item instanceof Map) {
+                                Map<String, Object> map = (Map<String, Object>) item;
+                                pTable.addCell(new Cell().add(new Paragraph(getStrVal(map, "username", "-")).setFont(font).setFontSize(9)).setPadding(4));
+                                pTable.addCell(new Cell().add(new Paragraph(String.valueOf(getNumberVal(map.get("resolvedCount")))).setFont(font).setFontSize(9)).setPadding(4));
+                                pTable.addCell(new Cell().add(new Paragraph(String.valueOf(getNumberVal(map.get("avgTime")))).setFont(font).setFontSize(9)).setPadding(4));
+                                pTable.addCell(new Cell().add(new Paragraph(String.valueOf(getNumberVal(map.get("minTime")))).setFont(font).setFontSize(9)).setPadding(4));
+                                pTable.addCell(new Cell().add(new Paragraph(String.valueOf(getNumberVal(map.get("maxTime")))).setFont(font).setFontSize(9)).setPadding(4));
+                            }
+                        }
+                        document.add(pTable);
+                    }
+                }
+            }
+            
+            // ============================================================
+            // BY SYSTEM
+            // ============================================================
             Object bySystem = reportData.get("bySystem");
             if (bySystem instanceof Map) {
                 @SuppressWarnings("unchecked")
@@ -524,6 +689,9 @@ public class ReportService {
                 }
             }
             
+            // ============================================================
+            // BY ZONE
+            // ============================================================
             Object byZone = reportData.get("byZone");
             if (byZone instanceof Map) {
                 @SuppressWarnings("unchecked")
@@ -558,6 +726,9 @@ public class ReportService {
                 }
             }
             
+            // ============================================================
+            // RESOLVED BY
+            // ============================================================
             Object resolvedBy = reportData.get("resolvedBy");
             if (resolvedBy instanceof Map) {
                 @SuppressWarnings("unchecked")
@@ -590,7 +761,9 @@ public class ReportService {
                 }
             }
             
-            // Render Alert Logs / Alert Details Table if present
+            // ============================================================
+            // ALERT LOGS TABLE (if present)
+            // ============================================================
             Object logsObj = reportData.get("alertLogs");
             if (logsObj == null) {
                 logsObj = reportData.get("alerts");
@@ -1115,7 +1288,14 @@ public class ReportService {
             log.put("receivedAt", alert.getReceivedAt());
             log.put("zoneNumber", alert.getZoneNumber());
             log.put("zoneNumbers", alert.getZoneNumbers());
-            log.put("zoneNames", alert.getZoneNames());
+            
+            String zNames = alert.getZoneNames();
+            if ((zNames == null || zNames.isEmpty() || "-".equals(zNames) || "null".equalsIgnoreCase(zNames)) 
+                    && alert.getAlarmSystem() != null && alert.getZoneNumbers() != null) {
+                zNames = getZoneNames(alert.getAlarmSystem().getId(), alert.getZoneNumbers());
+                alert.setZoneNames(zNames);
+            }
+            log.put("zoneNames", (zNames != null && !zNames.isEmpty()) ? zNames : "No Zone");
             log.put("rawMessage", alert.getRawMessage());
             log.put("resolvedAt", alert.getResolvedAt());
             log.put("resolvedBy", alert.getResolvedBy());
@@ -1243,6 +1423,11 @@ public class ReportService {
                                        LocalDateTime to, 
                                        String username, 
                                        String role) {
+        for (AlertLog alert : alerts) {
+            if (alert.getAlarmSystem() != null && alert.getZoneNumbers() != null) {
+                alert.setZoneNames(getZoneNames(alert.getAlarmSystem().getId(), alert.getZoneNumbers()));
+            }
+        }
         Map<String, Object> reportData = generateAlertLogsReport(alerts, from, to, username, role);
         return generateReportPDF(reportData, from, to, "ALERT_LOGS", username, role);
     }
@@ -1252,6 +1437,11 @@ public class ReportService {
                                          LocalDateTime to, 
                                          String username, 
                                          String role) {
+        for (AlertLog alert : alerts) {
+            if (alert.getAlarmSystem() != null && alert.getZoneNumbers() != null) {
+                alert.setZoneNames(getZoneNames(alert.getAlarmSystem().getId(), alert.getZoneNumbers()));
+            }
+        }
         Map<String, Object> reportData = generateAlertLogsReport(alerts, from, to, username, role);
         return generateReportExcel(reportData, from, to, "ALERT_LOGS", username, role);
     }
@@ -1295,11 +1485,20 @@ public class ReportService {
                     map.put("status", a.getStatus());
                     map.put("receivedAt", a.getReceivedAt() != null ? a.getReceivedAt().toString() : "");
                     map.put("zoneNumbers", a.getZoneNumbers());
-                    map.put("zoneNames", a.getZoneNames() != null ? a.getZoneNames() : "No Zone");
+                    
+                    String zNames = a.getZoneNames();
+                    if ((zNames == null || zNames.isEmpty() || "-".equals(zNames) || "null".equalsIgnoreCase(zNames))
+                            && a.getAlarmSystem() != null && a.getZoneNumbers() != null) {
+                        zNames = getZoneNames(a.getAlarmSystem().getId(), a.getZoneNumbers());
+                        a.setZoneNames(zNames);
+                    }
+                    map.put("zoneNames", (zNames != null && !zNames.isEmpty()) ? zNames : "No Zone");
+                    
                     map.put("resolvedBy", a.getResolvedBy() != null ? a.getResolvedBy() : "-");
                     map.put("isReported", a.getIsReported() != null && a.getIsReported());
                     if (a.getAlarmSystem() != null) {
                         Map<String, Object> sys = new LinkedHashMap<>();
+                        sys.put("id", a.getAlarmSystem().getId());
                         sys.put("systemCode", a.getAlarmSystem().getSystemCode());
                         sys.put("location", a.getAlarmSystem().getLocation());
                         map.put("system", sys);
@@ -1307,7 +1506,28 @@ public class ReportService {
                     result.add(map);
                 } else if (item instanceof Map) {
                     @SuppressWarnings("unchecked")
-                    Map<String, Object> map = (Map<String, Object>) item;
+                    Map<String, Object> map = new LinkedHashMap<>((Map<String, Object>) item);
+                    
+                    String zNames = getStrVal(map, "zoneNames", "");
+                    if (zNames.isEmpty() || "-".equals(zNames) || "null".equalsIgnoreCase(zNames)) {
+                        Long systemId = null;
+                        Object sysObj = map.get("system");
+                        if (sysObj instanceof Map) {
+                            Object idObj = ((Map<?, ?>) sysObj).get("id");
+                            if (idObj instanceof Number) systemId = ((Number) idObj).longValue();
+                        } else if (map.get("alarmSystem") instanceof Map) {
+                            Object idObj = ((Map<?, ?>) map.get("alarmSystem")).get("id");
+                            if (idObj instanceof Number) systemId = ((Number) idObj).longValue();
+                        }
+                        
+                        String zNumbers = getStrVal(map, "zoneNumbers", getStrVal(map, "zoneNumber", ""));
+                        if (!zNumbers.isEmpty() && !"00".equals(zNumbers)) {
+                            zNames = getZoneNames(systemId, zNumbers);
+                            map.put("zoneNames", zNames);
+                        } else {
+                            map.put("zoneNames", "No Zone");
+                        }
+                    }
                     result.add(map);
                 }
             }

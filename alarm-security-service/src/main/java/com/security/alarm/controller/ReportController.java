@@ -586,6 +586,7 @@ public class ReportController {
                 case "health":
                     var systems = alarmSystemRepository.findAll();
                     reportData = reportService.generateSystemHealth(systems);
+                    reportData.put("totalRecords", reportData.getOrDefault("totalSystems", 0));
                     reportTypeLabel = "HEALTH";
                     break;
                 case "performance":
@@ -644,20 +645,27 @@ public class ReportController {
         try {
             Long userId = null;
             Long companyId = null;
+            String filterUsername = username;
             
             if (username != null && !username.isEmpty()) {
                 Optional<User> userOpt = userRepository.findByUsername(username);
                 if (userOpt.isPresent()) {
                     User user = userOpt.get();
-                    userId = user.getId();
-                    if (user.getCompany() != null) {
-                        companyId = user.getCompany().getId();
+                    if ("ADMIN".equalsIgnoreCase(user.getRole())) {
+                        filterUsername = null;
+                        userId = null;
+                        companyId = null;
+                    } else {
+                        userId = user.getId();
+                        if (user.getCompany() != null) {
+                            companyId = user.getCompany().getId();
+                        }
                     }
                 }
             }
             
             List<SavedReport> reports = reportService.getSavedReportsWithFilters(
-                username, reportType, companyId, userId
+                filterUsername, reportType, companyId, userId
             );
             
             return ResponseEntity.ok(reports);

@@ -419,31 +419,73 @@ function ViewReportModal({ report, onClose, user, onDownload, downloading }) {
           ) : (
             <div className="space-y-4">
               {/* Report Summary */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center">
-                  <p className="text-2xl font-bold text-white">{data?.totalRecords || 0}</p>
-                  <p className="text-[10px] text-slate-400">Total Records</p>
+              {report.reportType === 'HEALTH' ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center">
+                    <p className="text-2xl font-bold text-white">{data?.totalSystems || 0}</p>
+                    <p className="text-[10px] text-slate-400">Total Systems</p>
+                  </div>
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center">
+                    <p className="text-2xl font-bold text-emerald-400">{data?.activeSystems || 0}</p>
+                    <p className="text-[10px] text-slate-400">Active Systems</p>
+                  </div>
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center">
+                    <p className="text-2xl font-bold text-red-400">{data?.inactiveSystems || 0}</p>
+                    <p className="text-[10px] text-slate-400">Inactive Systems</p>
+                  </div>
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center">
+                    <p className="text-2xl font-bold text-blue-400">{data?.activeZones || 0}</p>
+                    <p className="text-[10px] text-slate-400">Active Zones</p>
+                  </div>
                 </div>
-                <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center">
-                  <p className="text-2xl font-bold text-red-400">{data?.pending || 0}</p>
-                  <p className="text-[10px] text-slate-400">Pending</p>
+              ) : report.reportType === 'PERFORMANCE' ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center">
+                    <p className="text-2xl font-bold text-emerald-400">{data?.totalResolved || 0}</p>
+                    <p className="text-[10px] text-slate-400">Total Resolved</p>
+                  </div>
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center">
+                    <p className="text-2xl font-bold text-red-400">{data?.totalPending || 0}</p>
+                    <p className="text-[10px] text-slate-400">Total Pending</p>
+                  </div>
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center col-span-2">
+                    <p className="text-2xl font-bold text-blue-400">User Performance</p>
+                    <p className="text-[10px] text-slate-400">See charts below</p>
+                  </div>
                 </div>
-                <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center">
-                  <p className="text-2xl font-bold text-emerald-400">{data?.resolved || 0}</p>
-                  <p className="text-[10px] text-slate-400">Resolved</p>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center">
+                    <p className="text-2xl font-bold text-white">{data?.totalRecords || 0}</p>
+                    <p className="text-[10px] text-slate-400">Total Records</p>
+                  </div>
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center">
+                    <p className="text-2xl font-bold text-red-400">
+                      {data?.pending !== undefined ? data.pending : (data?.statusCounts?.PENDING || 0)}
+                    </p>
+                    <p className="text-[10px] text-slate-400">Pending</p>
+                  </div>
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center">
+                    <p className="text-2xl font-bold text-emerald-400">
+                      {data?.resolved !== undefined ? data.resolved : (data?.statusCounts?.RESOLVED || 0)}
+                    </p>
+                    <p className="text-[10px] text-slate-400">Resolved</p>
+                  </div>
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center">
+                    <p className="text-2xl font-bold text-yellow-400">
+                      {data?.call !== undefined ? (data.call + (data.armed || 0)) : ((data?.statusCounts?.CALL || 0) + (data?.statusCounts?.ARMED || 0))}
+                    </p>
+                    <p className="text-[10px] text-slate-400">CALL/ARMED</p>
+                  </div>
                 </div>
-                <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center">
-                  <p className="text-2xl font-bold text-yellow-400">{data?.call || 0}</p>
-                  <p className="text-[10px] text-slate-400">CALL/ARMED</p>
-                </div>
-              </div>
+              )}
 
               {/* By System */}
-              {data?.bySystem && Object.keys(data.bySystem).length > 0 && (
+              {(data?.bySystem || data?.systemCounts) && Object.keys(data?.bySystem || data?.systemCounts || {}).length > 0 && (
                 <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4">
                   <h4 className="text-sm font-bold text-white mb-3">📊 Alerts by System</h4>
                   <div className="space-y-2">
-                    {Object.entries(data.bySystem).map(([system, count]) => {
+                    {Object.entries(data?.bySystem || data?.systemCounts || {}).map(([system, count]) => {
                       const total = data.totalRecords || 1;
                       const pct = (count / total) * 100;
                       return (
