@@ -4,32 +4,39 @@ services:
     container_name: alarm_mysql_db
     restart: always
     environment:
-      MYSQL_DATABASE: alarm
-      MYSQL_ROOT_PASSWORD: Ijse@123
-    ports:
-      - "3306:3306"
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-alarm}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
     volumes:
       - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   backend:
-    image: ghcr.io/tharidi2002/alarm-backend:latest
+    build:
+      context: ./alarm-security-service
     container_name: alarm_backend
     restart: always
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/alarm?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: Ijse@123
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/${MYSQL_DATABASE:-alarm}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-root}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
     ports:
       - "8080:8080"
 
   frontend:
-    image: ghcr.io/tharidi2002/alarm-frontend:latest
+    build:
+      context: ./atm-security-dashboard
     container_name: alarm_frontend
     restart: always
     depends_on:
-      - backend
+      backend:
+        condition: service_started
     ports:
       - "80:80"
 

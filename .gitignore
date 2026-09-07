@@ -1,0 +1,8 @@
+.env
+
+# Build output
+alarm-security-service/target/
+atm-security-dashboard/dist/
+
+# Local dependencies
+atm-security-dashboard/node_modules/
