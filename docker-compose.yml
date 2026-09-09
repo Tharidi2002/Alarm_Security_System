@@ -3,6 +3,12 @@ services:
     image: mysql:8.0
     container_name: alarm_mysql_db
     restart: always
+    command: >
+      --innodb-buffer-pool-size=64M
+      --innodb-log-buffer-size=8M
+      --max-connections=30
+      --performance-schema=OFF
+      --key-buffer-size=16M
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-alarm}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
@@ -26,6 +32,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/${MYSQL_DATABASE:-alarm}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-root}
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      JAVA_OPTS: "-Xmx256m -Xms128m -XX:+UseSerialGC"
     ports:
       - "8080:8080"
 
